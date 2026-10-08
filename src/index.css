@@ -2,66 +2,72 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 莫兰迪低饱和配色：暖纸底 + 灰绿 / 藕粉 / 燕麦 / 暖灰 */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
+    --background: 40 19% 93%;
+    --foreground: 45 7% 28%;
+    --card: 40 22% 95.5%;
+    --card-foreground: 45 7% 28%;
+    --popover: 40 20% 96.5%;
+    --popover-foreground: 45 7% 28%;
+    --primary: 96 12% 47%;
+    --primary-foreground: 40 25% 96%;
+    --secondary: 40 14% 88%;
+    --secondary-foreground: 45 9% 32%;
+    --muted: 40 13% 89%;
+    --muted-foreground: 40 5% 48%;
+    --accent: 36 15% 86%;
+    --accent-foreground: 45 9% 32%;
+    --destructive: 12 28% 54%;
+    --destructive-foreground: 40 25% 96%;
+    --border: 40 11% 81%;
+    --input: 40 11% 81%;
+    --ring: 96 12% 47%;
     --radius: 0.625rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-background: 40 19% 93%;
+    --sidebar-foreground: 45 7% 28%;
+    --sidebar-primary: 96 12% 47%;
+    --sidebar-primary-foreground: 40 25% 96%;
+    --sidebar-accent: 36 15% 86%;
+    --sidebar-accent-foreground: 45 9% 32%;
+    --sidebar-border: 40 11% 81%;
+    --sidebar-ring: 96 12% 47%;
+
+    /* 语义色 */
+    --morandi-planned: 9 20% 66%;      /* 藕粉（卫星中） */
+    --morandi-ongoing: 96 14% 45%;     /* 灰绿（进行中） */
+    --morandi-finished: 40 6% 58%;     /* 暖灰（已结团） */
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --background: 40 8% 14%;
+    --foreground: 40 15% 88%;
+    --card: 40 8% 17%;
+    --card-foreground: 40 15% 88%;
+    --popover: 40 8% 17%;
+    --popover-foreground: 40 15% 88%;
+    --primary: 96 14% 60%;
+    --primary-foreground: 40 30% 12%;
+    --secondary: 40 7% 24%;
+    --secondary-foreground: 40 15% 88%;
+    --muted: 40 7% 22%;
+    --muted-foreground: 40 6% 62%;
+    --accent: 36 8% 26%;
+    --accent-foreground: 40 15% 88%;
+    --destructive: 12 32% 52%;
+    --destructive-foreground: 40 25% 96%;
+    --border: 40 7% 28%;
+    --input: 40 7% 28%;
+    --ring: 96 14% 60%;
+    --sidebar-background: 40 8% 14%;
+    --sidebar-foreground: 40 15% 88%;
+    --sidebar-primary: 96 14% 60%;
+    --sidebar-primary-foreground: 40 30% 12%;
+    --sidebar-accent: 36 8% 26%;
+    --sidebar-accent-foreground: 40 15% 88%;
+    --sidebar-border: 40 7% 28%;
+    --sidebar-ring: 96 14% 60%;
   }
 }
 
@@ -71,5 +77,59 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "tnum";
+  }
+}
+
+@layer components {
+  /* 状态语义色（莫兰迪） */
+  .st-planned {
+    background-color: hsl(var(--morandi-planned) / 0.22);
+    color: hsl(9 24% 38%);
+  }
+  .st-ongoing {
+    background-color: hsl(var(--morandi-ongoing) / 0.2);
+    color: hsl(96 20% 30%);
+  }
+  .st-finished {
+    background-color: hsl(var(--morandi-finished) / 0.2);
+    color: hsl(40 8% 42%);
+  }
+  .dot-planned { background-color: hsl(var(--morandi-planned)); }
+  .dot-ongoing { background-color: hsl(var(--morandi-ongoing)); }
+  .dot-finished { background-color: hsl(var(--morandi-finished)); }
+
+  /* HO 栏目 chip */
+  .ho-chip {
+    @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors;
+    background-color: hsl(36 16% 88% / 0.6);
+    border-color: hsl(var(--border));
+    color: hsl(45 9% 34%);
+  }
+  .ho-chip:hover {
+    border-color: hsl(40 8% 62%);
+  }
+
+  /* 卡背预览表格 */
+  .card-preview-table {
+    @apply w-full text-[13px] border-separate;
+    border-spacing: 0;
+  }
+  .card-preview-table td {
+    @apply border-b border-r px-3 py-1.5 whitespace-nowrap max-w-56 overflow-hidden text-ellipsis;
+    border-color: hsl(var(--border) / 0.7);
+  }
+  .card-preview-table tr:first-child td {
+    @apply border-t;
+  }
+  .card-preview-table td:first-child {
+    @apply border-l;
+  }
+  .card-preview-table tr:first-child td {
+    @apply font-medium;
+    background-color: hsl(40 14% 88% / 0.7);
+  }
+  .card-preview-table tbody tr:hover td {
+    background-color: hsl(36 16% 88% / 0.4);
   }
 }

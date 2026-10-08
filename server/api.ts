@@ -11,11 +11,30 @@ const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 
 type Status = "planned" | "ongoing" | "finished";
 type CardMeta = { name: string; sizeBytes: number; storedName: string };
-type Pc = { id: string; name: string; photo: string | null; card: CardMeta | null };
-type Module = { id: string; name: string; status: Status; pcs: Pc[] };
+type Ho = { id: string; name: string };
+type Pc = { id: string; name: string; photo: string | null; card: CardMeta | null; hoId: string | null };
+type Module = { id: string; name: string; status: Status; hos: Ho[]; pcs: Pc[] };
 type State = { modules: Module[]; updatedAt: string };
 
 const STATUSES: Status[] = ["planned", "ongoing", "finished"];
+
+function defaultHos(): Ho[] {
+  return [1, 2, 3, 4].map((n) => ({ id: uid("h"), name: `HO${n}` }));
+}
+
+function migrate(s: any): State {
+  if (!s || !Array.isArray(s.modules)) return { modules: [], updatedAt: "" };
+  for (const m of s.modules) {
+    if (!Array.isArray(m.hos)) m.hos = defaultHos();
+    if (!Array.isArray(m.pcs)) m.pcs = [];
+    const hoIds = new Set(m.hos.map((h: Ho) => h.id));
+    for (const p of m.pcs) {
+      if (p.hoId === undefined) p.hoId = null;
+      if (p.hoId && !hoIds.has(p.hoId)) p.hoId = null;
+    }
+  }
+  return s as State;
+}
 
 function ensureDirs() {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -24,12 +43,10 @@ function ensureDirs() {
 function loadState(): State {
   ensureDirs();
   try {
-    const s = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
-    if (s && Array.isArray(s.modules)) return s as State;
+    return migrate(JSON.parse(fs.readFileSync(STATE_FILE, "utf8")));
   } catch {
-    /* fall through to empty state */
+    return { modules: [], updatedAt: "" };
   }
-  return { modules: [], updatedAt: "" };
 }
 
 function saveState(s: State) {
@@ -46,10 +63,12 @@ function publicState(s: State) {
       id: m.id,
       name: m.name,
       status: m.status,
+      hos: m.hos,
       pcs: m.pcs.map((p) => ({
         id: p.id,
         name: p.name,
         photo: p.photo,
+        hoId: p.hoId,
         card: p.card ? { name: p.card.name, sizeBytes: p.card.sizeBytes } : null,
       })),
     })),
@@ -135,7 +154,7 @@ async function handle(req: any, res: any, url: string) {
   if (method === "POST" && seg.length === 2 && seg[1] === "modules") {
     const name = String(body.name || "").trim() || "未命名模组";
     const status = STATUSES.includes(body.status) ? (body.status as Status) : "planned";
-    const mod: Module = { id: uid("m"), name, status, pcs: [] };
+    const mod: Module = { id: uid("m"), name, status, hos: defaultHos(), pcs: [] };
     state.modules.push(mod);
     saveState(state);
     return json(res, 200, { module: mod });
@@ -168,29 +187,68 @@ async function handle(req: any, res: any, url: string) {
     return json(res, 200, { ok: true });
   }
 
+  // POST /api/modules/:id/hos  { name? } — add an HO column
+  if (method === "POST" && seg.length === 4 && seg[1] === "modules" && seg[3] === "hos") {
+    const m = findModule(state, decodeURIComponent(seg[2]));
+    if (!m) return json(res, 404, { error: "模组不存在" });
+    let name = String(body.name || "").trim();
+    if (!name) name = `HO${m.hos.length + 1}`;
+    const ho: Ho = { id: uid("h"), name };
+    m.hos.push(ho);
+    saveState(state);
+    return json(res, 200, { ho });
+  }
+
+  // PATCH /api/modules/:id/hos/:hoId  { name }
+  if (method === "PATCH" && seg.length === 5 && seg[1] === "modules" && seg[3] === "hos") {
+    const m = findModule(state, decodeURIComponent(seg[2]));
+    const ho = m?.hos.find((h) => h.id === decodeURIComponent(seg[4]));
+    if (!m || !ho) return json(res, 404, { error: "栏目不存在" });
+    if (typeof body.name === "string" && body.name.trim()) ho.name = body.name.trim();
+    saveState(state);
+    return json(res, 200, { ho });
+  }
+
+  // DELETE /api/modules/:id/hos/:hoId
+  if (method === "DELETE" && seg.length === 5 && seg[1] === "modules" && seg[3] === "hos") {
+    const m = findModule(state, decodeURIComponent(seg[2]));
+    if (!m) return json(res, 404, { error: "模组不存在" });
+    const hoId = decodeURIComponent(seg[4]);
+    m.hos = m.hos.filter((h) => h.id !== hoId);
+    for (const p of m.pcs) if (p.hoId === hoId) p.hoId = null;
+    saveState(state);
+    return json(res, 200, { ok: true });
+  }
+
   // POST /api/modules/:id/pcs
   if (method === "POST" && seg.length === 4 && seg[1] === "modules" && seg[3] === "pcs") {
     const m = findModule(state, decodeURIComponent(seg[2]));
     if (!m) return json(res, 404, { error: "模组不存在" });
     const name = String(body.name || "").trim() || "未命名 PC";
-    const pc: Pc = { id: uid("p"), name, photo: null, card: null };
+    const pc: Pc = { id: uid("p"), name, photo: null, card: null, hoId: null };
     m.pcs.push(pc);
     saveState(state);
     return json(res, 200, { pc });
   }
 
-  // PATCH /api/modules/:id/pcs/:pcId  { name? }
+  // PATCH /api/modules/:id/pcs/:pcId  { name?, hoId? }
   if (method === "PATCH" && seg.length === 5 && seg[1] === "modules") {
-    const { p } = findPc(state, decodeURIComponent(seg[2]), decodeURIComponent(seg[4]));
-    if (!p) return json(res, 404, { error: "PC 不存在" });
+    const m = findModule(state, decodeURIComponent(seg[2]));
+    const p = m?.pcs.find((x) => x.id === decodeURIComponent(seg[4]));
+    if (!m || !p) return json(res, 404, { error: "PC 不存在" });
     if (typeof body.name === "string" && body.name.trim()) p.name = body.name.trim();
+    if (body.hoId === null) p.hoId = null;
+    else if (typeof body.hoId === "string" && m.hos.some((h) => h.id === body.hoId)) {
+      p.hoId = body.hoId;
+    }
     saveState(state);
     return json(res, 200, { pc: p });
   }
 
   // DELETE /api/modules/:id/pcs/:pcId
   if (method === "DELETE" && seg.length === 5 && seg[1] === "modules") {
-    const { m, p } = findPc(state, decodeURIComponent(seg[2]), decodeURIComponent(seg[4]));
+    const m = findModule(state, decodeURIComponent(seg[2]));
+    const p = m?.pcs.find((x) => x.id === decodeURIComponent(seg[4]));
     if (!m || !p) return json(res, 404, { error: "PC 不存在" });
     if (p.card) {
       const f = path.join(UPLOAD_DIR, path.basename(p.card.storedName));
