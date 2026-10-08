@@ -3,7 +3,7 @@
 // with a separate dark palette per theme.
 // Choices persist in localStorage and are applied on load (see bottom).
 
-export type ThemeName = "oat" | "sage" | "mist" | "rose" | "clay";
+export type ThemeName = "oat" | "sage" | "mist" | "rose" | "clay" | "sunset";
 export type Mode = "light" | "dark";
 
 type VarMap = Record<string, string>;
@@ -183,6 +183,31 @@ export const THEMES: Record<ThemeName, ThemeDef> = {
     },
     darkVars: darkVariant({ fg: "28 10% 13%", primary: "22 28% 62%" }),
     hoColors: ["22 30% 54%", "96 16% 48%", "205 16% 56%", "340 12% 56%"],
+  },
+  sunset: {
+    label: "落日",
+    swatch: ["36 32% 93%", "22 50% 56%"],
+    vars: {
+      "--background": "36 32% 93%",
+      "--foreground": "25 14% 26%",
+      "--card": "36 36% 95.5%",
+      "--card-foreground": "25 14% 26%",
+      "--popover": "36 34% 96.5%",
+      "--popover-foreground": "25 14% 26%",
+      "--primary": "22 50% 56%",
+      "--primary-foreground": "36 40% 96%",
+      "--secondary": "28 24% 88%",
+      "--secondary-foreground": "25 12% 30%",
+      "--muted": "32 22% 89%",
+      "--muted-foreground": "26 9% 46%",
+      "--accent": "350 22% 89%",
+      "--accent-foreground": "348 14% 32%",
+      "--border": "30 16% 80%",
+      "--input": "30 16% 80%",
+      "--ring": "22 50% 56%",
+    },
+    darkVars: darkVariant({ fg: "262 12% 14%", primary: "24 58% 64%" }),
+    hoColors: ["40 52% 55%", "22 55% 58%", "350 20% 60%", "245 14% 54%"],
   },
 };
 

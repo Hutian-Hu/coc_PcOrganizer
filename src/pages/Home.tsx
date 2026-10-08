@@ -963,7 +963,10 @@ function HoColumn({
           <div key={m.id} className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5 px-0.5">
               <span className={`h-1.5 w-1.5 rounded-full shrink-0 dot-${m.status}`} />
-              <span className="h-px flex-1 bg-border/70" />
+              <span
+                className="h-1.5 flex-1 rounded-full"
+                style={{ background: `hsl(var(--morandi-${m.status}) / 0.45)` }}
+              />
             </div>
             {pcs.map((p) => (
               <PcEntry
@@ -1336,7 +1339,7 @@ function PcEntry({
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0 mt-0.5">
             <span className={`h-1.5 w-1.5 rounded-full shrink-0 dot-${m.status}`} />
             <span className="truncate">{m.name}</span>
-            <span className="text-muted-foreground/70 shrink-0">· {STATUS[m.status]}</span>
+            <span className={`shrink-0 rounded px-1 py-px text-[9px] st-${m.status}`}>{STATUS[m.status]}</span>
           </div>
           {p.card && (
             <button
