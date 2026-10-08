@@ -2,13 +2,15 @@
 // - "server": the local web app with its Node API (data shared, files on disk)
 // - "local":  static hosting (e.g. GitHub Pages) — data lives in this browser's localStorage
 // The mode is detected once on first use: if /api/state answers, use the server.
+//
+// Hierarchy: global HO slots -> modules -> PCs (pc.hoId points at a global slot).
 
 export type Status = "planned" | "ongoing" | "paused" | "disbanded" | "finished";
 export type CardMeta = { name: string; sizeBytes: number; data?: string };
 export type Ho = { id: string; name: string };
 export type Pc = { id: string; name: string; photo: string | null; card: CardMeta | null; hoId: string | null };
-export type Module = { id: string; name: string; status: Status; hos: Ho[]; pcs: Pc[] };
-export type State = { modules: Module[]; updatedAt: string };
+export type Module = { id: string; name: string; status: Status; pcs: Pc[] };
+export type State = { hos: Ho[]; modules: Module[]; updatedAt: string };
 
 type Mode = "server" | "local";
 
@@ -25,20 +27,41 @@ function detectMode(): Promise<Mode> {
 
 const LS_KEY = "coc-web-state-v1";
 
+function uid(prefix: string) {
+  return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
 function defaultHos(): Ho[] {
   return [1, 2, 3, 4].map((n) => ({ id: uid("h"), name: `HO${n}` }));
 }
 
 function migrate(s: any): State {
-  if (!s || !Array.isArray(s.modules)) return { modules: [], updatedAt: "" };
+  if (!s || !Array.isArray(s.modules)) return { hos: defaultHos(), modules: [], updatedAt: "" };
+  const globalHos: Ho[] = Array.isArray(s.hos) ? s.hos : [];
+  const byName = new Map<string, Ho>(globalHos.map((h) => [h.name, h]));
   for (const m of s.modules) {
-    if (!Array.isArray(m.hos)) m.hos = defaultHos();
-    if (!Array.isArray(m.pcs)) m.pcs = [];
-    const hoIds = new Set(m.hos.map((h: Ho) => h.id));
-    for (const p of m.pcs) {
-      if (p.hoId === undefined) p.hoId = null;
-      if (p.hoId && !hoIds.has(p.hoId)) p.hoId = null;
+    if (Array.isArray(m.hos)) {
+      const idMap = new Map<string, string>();
+      for (const h of m.hos) {
+        let g = byName.get(h.name);
+        if (!g) {
+          g = { id: uid("h"), name: h.name };
+          globalHos.push(g);
+          byName.set(h.name, g);
+        }
+        idMap.set(h.id, g.id);
+      }
+      for (const p of m.pcs ?? []) {
+        p.hoId = p.hoId ? idMap.get(p.hoId) ?? null : null;
+      }
+      delete m.hos;
     }
+    if (!Array.isArray(m.pcs)) m.pcs = [];
+  }
+  if (!Array.isArray(s.hos) || !s.hos.length) s.hos = globalHos.length ? globalHos : defaultHos();
+  const ids = new Set(s.hos.map((h: Ho) => h.id));
+  for (const m of s.modules) {
+    for (const p of m.pcs) if (p.hoId && !ids.has(p.hoId)) p.hoId = null;
   }
   return s as State;
 }
@@ -47,7 +70,7 @@ function loadLocal(): State {
   try {
     return migrate(JSON.parse(localStorage.getItem(LS_KEY) || ""));
   } catch {
-    return { modules: [], updatedAt: "" };
+    return { hos: defaultHos(), modules: [], updatedAt: "" };
   }
 }
 
@@ -56,13 +79,9 @@ function saveLocal(s: State) {
   localStorage.setItem(LS_KEY, JSON.stringify(s));
 }
 
-function uid(prefix: string) {
-  return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
-
 async function serverReq<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, {
-    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+    headers: init?.body && typeof init.body === "string" ? { "Content-Type": "application/json" } : undefined,
     ...init,
   });
   if (!r.ok) {
@@ -81,13 +100,62 @@ export async function getState(): Promise<State> {
   return loadLocal();
 }
 
+/* ---------- global HO slots ---------- */
+
+export async function addHo(name?: string): Promise<void> {
+  if ((await detectMode()) === "server") {
+    await serverReq("/api/hos", { method: "POST", body: JSON.stringify({ name: name || "" }) });
+    return;
+  }
+  const s = loadLocal();
+  s.hos.push({ id: uid("h"), name: name?.trim() || `HO${s.hos.length + 1}` });
+  saveLocal(s);
+}
+
+export async function renameHo(hoId: string, name: string): Promise<void> {
+  if ((await detectMode()) === "server") {
+    await serverReq(`/api/hos/${hoId}`, { method: "PATCH", body: JSON.stringify({ name }) });
+    return;
+  }
+  const s = loadLocal();
+  const ho = s.hos.find((h) => h.id === hoId);
+  if (ho && name.trim()) {
+    ho.name = name.trim();
+    saveLocal(s);
+  }
+}
+
+export async function removeHo(hoId: string): Promise<void> {
+  if ((await detectMode()) === "server") {
+    await serverReq(`/api/hos/${hoId}`, { method: "DELETE" });
+    return;
+  }
+  const s = loadLocal();
+  s.hos = s.hos.filter((h) => h.id !== hoId);
+  for (const m of s.modules) for (const p of m.pcs) if (p.hoId === hoId) p.hoId = null;
+  saveLocal(s);
+}
+
+export async function reorderHos(hoIds: string[]): Promise<void> {
+  if ((await detectMode()) === "server") {
+    await serverReq("/api/hos/order", { method: "PUT", body: JSON.stringify({ hoIds }) });
+    return;
+  }
+  const s = loadLocal();
+  const ranked = new Map(hoIds.map((id, i) => [id, i]));
+  s.hos.sort((a, b) => (ranked.get(a.id) ?? 999) - (ranked.get(b.id) ?? 999));
+  saveLocal(s);
+}
+
+/* ---------- modules ---------- */
+
 export async function addModule(name: string, status: Status): Promise<void> {
   if ((await detectMode()) === "server") {
     await serverReq("/api/modules", { method: "POST", body: JSON.stringify({ name, status }) });
     return;
   }
   const s = loadLocal();
-  s.modules.push({ id: uid("m"), name, status, hos: defaultHos(), pcs: [] });
+  s.modules.push({ id: uid("m"), name, status, pcs: [] });
   saveLocal(s);
 }
 
@@ -123,68 +191,7 @@ export async function removeModule(id: string): Promise<void> {
   saveLocal(s);
 }
 
-export async function addHo(moduleId: string, name?: string): Promise<void> {
-  if ((await detectMode()) === "server") {
-    await serverReq(`/api/modules/${moduleId}/hos`, {
-      method: "POST",
-      body: JSON.stringify({ name: name || "" }),
-    });
-    return;
-  }
-  const s = loadLocal();
-  const m = findModule(s, moduleId);
-  if (m) {
-    m.hos.push({ id: uid("h"), name: name?.trim() || `HO${m.hos.length + 1}` });
-    saveLocal(s);
-  }
-}
-
-export async function renameHo(moduleId: string, hoId: string, name: string): Promise<void> {
-  if ((await detectMode()) === "server") {
-    await serverReq(`/api/modules/${moduleId}/hos/${hoId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ name }),
-    });
-    return;
-  }
-  const s = loadLocal();
-  const ho = findModule(s, moduleId)?.hos.find((h) => h.id === hoId);
-  if (ho && name.trim()) {
-    ho.name = name.trim();
-    saveLocal(s);
-  }
-}
-
-export async function removeHo(moduleId: string, hoId: string): Promise<void> {
-  if ((await detectMode()) === "server") {
-    await serverReq(`/api/modules/${moduleId}/hos/${hoId}`, { method: "DELETE" });
-    return;
-  }
-  const s = loadLocal();
-  const m = findModule(s, moduleId);
-  if (m) {
-    m.hos = m.hos.filter((h) => h.id !== hoId);
-    for (const p of m.pcs) if (p.hoId === hoId) p.hoId = null;
-    saveLocal(s);
-  }
-}
-
-export async function reorderHos(moduleId: string, hoIds: string[]): Promise<void> {
-  if ((await detectMode()) === "server") {
-    await serverReq(`/api/modules/${moduleId}/hos/order`, {
-      method: "PUT",
-      body: JSON.stringify({ hoIds }),
-    });
-    return;
-  }
-  const s = loadLocal();
-  const m = findModule(s, moduleId);
-  if (m) {
-    const ranked = new Map(hoIds.map((id, i) => [id, i]));
-    m.hos.sort((a, b) => (ranked.get(a.id) ?? 999) - (ranked.get(b.id) ?? 999));
-    saveLocal(s);
-  }
-}
+/* ---------- PCs ---------- */
 
 export async function addPc(moduleId: string, name: string): Promise<void> {
   if ((await detectMode()) === "server") {
@@ -222,9 +229,8 @@ export async function setPcHo(moduleId: string, pcId: string, hoId: string | nul
     return;
   }
   const s = loadLocal();
-  const m = findModule(s, moduleId);
-  const p = m?.pcs.find((x) => x.id === pcId);
-  if (m && p && (hoId === null || m.hos.some((h) => h.id === hoId))) {
+  const p = findModule(s, moduleId)?.pcs.find((x) => x.id === pcId);
+  if (p && (hoId === null || s.hos.some((h) => h.id === hoId))) {
     p.hoId = hoId;
     saveLocal(s);
   }
@@ -257,7 +263,6 @@ export async function setPhoto(moduleId: string, pcId: string, photo: string | n
 
 export async function setCard(moduleId: string, pcId: string, file: File): Promise<void> {
   if ((await detectMode()) === "server") {
-    // raw binary upload avoids any base64/text encoding issues
     const r = await fetch(`/api/modules/${moduleId}/pcs/${pcId}/card`, {
       method: "PUT",
       headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) },
@@ -286,7 +291,6 @@ function bufToBase64(buf: ArrayBuffer): string {
   return btoa(out);
 }
 
-// Fetch the card file content for preview/download.
 export async function getCardArrayBuffer(pcId: string): Promise<ArrayBuffer> {
   if ((await detectMode()) === "server") {
     const r = await fetch(`/api/cards/${pcId}`);

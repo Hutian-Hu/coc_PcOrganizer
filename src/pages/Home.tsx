@@ -22,9 +22,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Users,
+  Palette,
+  FolderOpen,
 } from "lucide-react";
 import {
   type Status,
+  type Ho,
   type Pc,
   type Module,
   type State,
@@ -45,6 +48,7 @@ import {
   setCard,
   getCardArrayBuffer,
 } from "@/lib/storage";
+import { THEMES, applyTheme, getTheme, type ThemeName } from "@/lib/theme";
 
 const STATUS: Record<Status, string> = {
   planned: "卫星中",
@@ -66,7 +70,7 @@ function fmtSize(n?: number) {
 }
 
 export default function Home() {
-  const [state, setState] = useState<State>({ modules: [], updatedAt: "" });
+  const [state, setState] = useState<State>({ hos: [], modules: [], updatedAt: "" });
   const [filter, setFilter] = useState<"all" | Status>("all");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; kind: "error" | "info" } | null>(null);
@@ -132,20 +136,23 @@ export default function Home() {
 
   const counts: Record<Status, number> = { planned: 0, ongoing: 0, paused: 0, disbanded: 0, finished: 0 };
   state.modules.forEach((m) => counts[m.status]++);
-  const visible = state.modules.filter((m) => filter === "all" || m.status === filter);
+  const visibleModules = state.modules.filter((m) => filter === "all" || m.status === filter);
 
   return (
     <div className="min-h-screen">
-      <div className="mx-auto max-w-5xl px-4 py-10 flex flex-col gap-4">
-        <header className="flex items-baseline gap-3 flex-wrap">
+      <div className="mx-auto max-w-6xl px-4 py-10 flex flex-col gap-4">
+        <header className="flex items-center gap-3 flex-wrap">
           <h1 className="text-xl font-medium flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
             TRPG PC整理工具
           </h1>
-          <span className="text-xs text-muted-foreground ml-auto">
-            {ORDER.map((s) => `${STATUS[s]} ${counts[s]}`).join(" · ")}
-          </span>
-          {busy && <span className="text-xs text-muted-foreground">保存中…</span>}
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">
+              {ORDER.map((s) => `${STATUS[s]} ${counts[s]}`).join(" · ")}
+            </span>
+            <ThemePicker />
+            {busy && <span className="text-xs text-muted-foreground">保存中…</span>}
+          </div>
         </header>
 
         {msg && (
@@ -209,24 +216,30 @@ export default function Home() {
           </Button>
         </form>
 
-        <div className="flex flex-col gap-4">
-          {visible.length === 0 && (
-            <div className="text-sm text-muted-foreground text-center py-12">
-              {state.modules.length ? "该状态下暂无模组" : "还没有模组，先在上方添加一个吧"}
+        <HoBoard
+          hos={state.hos}
+          modules={visibleModules}
+          busy={busy}
+          run={run}
+          onViewPhoto={(src, name) => setViewer({ src, name })}
+          onPreview={openPreview}
+          onCrop={(moduleId, pcId, file) => setCrop({ moduleId, pcId, file })}
+        />
+
+        <section className="flex flex-col gap-2">
+          <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+            <FolderOpen className="h-4 w-4" />
+            模组管理
+          </h2>
+          {visibleModules.length === 0 && (
+            <div className="text-sm text-muted-foreground text-center py-6">
+              {state.modules.length ? "该状态下暂无模组" : "还没有模组"}
             </div>
           )}
-          {visible.map((m) => (
-            <ModuleCard
-              key={m.id}
-              module={m}
-              busy={busy}
-              run={run}
-              onViewPhoto={(src, name) => setViewer({ src, name })}
-              onPreview={openPreview}
-              onCrop={(pcId, file) => setCrop({ moduleId: m.id, pcId, file })}
-            />
+          {visibleModules.map((m) => (
+            <ModuleRow key={m.id} module={m} busy={busy} run={run} />
           ))}
-        </div>
+        </section>
 
         <footer className="text-xs text-muted-foreground">
           数据更新于 {state.updatedAt ? new Date(state.updatedAt).toLocaleString() : "—"}
@@ -248,12 +261,74 @@ export default function Home() {
         <CropModal
           file={crop.file}
           onCancel={() => setCrop(null)}
-          onConfirm={async (dataUrl) => {
+          onConfirm={(dataUrl) => {
             const { moduleId, pcId } = crop;
             setCrop(null);
-            await run(() => setPhoto(moduleId, pcId, dataUrl), "照片已更新");
+            void run(() => setPhoto(moduleId, pcId, dataUrl), "照片已更新");
           }}
         />
+      )}
+    </div>
+  );
+}
+
+/* ================= theme picker ================= */
+
+function ThemePicker() {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState<ThemeName>(getTheme());
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest("[data-theme-panel]")) setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div className="relative" data-theme-panel>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-8 w-8"
+        aria-label="更换配色"
+        title="更换配色"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Palette className="h-4 w-4" />
+      </Button>
+      {open && (
+        <div className="absolute right-0 top-9 z-40 bg-popover border rounded-xl shadow-lg p-2 flex flex-col gap-1 w-36">
+          <div className="text-[11px] text-muted-foreground px-1.5 py-0.5">网站配色</div>
+          {(Object.keys(THEMES) as ThemeName[]).map((name) => {
+            const t = THEMES[name];
+            const active = name === current;
+            return (
+              <button
+                key={name}
+                type="button"
+                className={`flex items-center gap-2 rounded-lg px-1.5 py-1.5 text-xs transition-colors ${
+                  active ? "bg-secondary font-medium" : "hover:bg-secondary/70"
+                }`}
+                onClick={() => {
+                  applyTheme(name);
+                  setCurrent(name);
+                  setOpen(false);
+                }}
+              >
+                <span
+                  className="h-5 w-5 rounded-full border shrink-0"
+                  style={{
+                    background: `linear-gradient(135deg, hsl(${t.swatch[0]}) 50%, hsl(${t.swatch[1]}) 50%)`,
+                  }}
+                />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -380,9 +455,7 @@ function CropModal({
     const cx = CROP_BOX / 2;
     const cy = CROP_BOX / 2;
     const ratio = next / prev;
-    setOffset((o) =>
-      clamp({ x: cx - (cx - o.x) * ratio, y: cy - (cy - o.y) * ratio })
-    );
+    setOffset((o) => clamp({ x: cx - (cx - o.x) * ratio, y: cy - (cy - o.y) * ratio }));
     setScale(next);
   }
 
@@ -412,9 +485,7 @@ function CropModal({
           onPointerMove={(e) => {
             if (!drag.current) return;
             const d = drag.current;
-            setOffset(
-              clamp({ x: d.ox + e.clientX - d.px, y: d.oy + e.clientY - d.py })
-            );
+            setOffset(clamp({ x: d.ox + e.clientX - d.px, y: d.oy + e.clientY - d.py }));
           }}
           onPointerUp={() => (drag.current = null)}
           onPointerCancel={() => (drag.current = null)}
@@ -452,34 +523,33 @@ function CropModal({
   );
 }
 
-/* ================= module card with HO columns ================= */
+/* ================= HO board: HO slots -> modules -> PCs ================= */
 
-function ModuleCard({
-  module: m,
+function HoBoard({
+  hos,
+  modules,
   busy,
   run,
   onViewPhoto,
   onPreview,
   onCrop,
 }: {
-  module: Module;
+  hos: Ho[];
+  modules: Module[];
   busy: boolean;
   run: Run;
   onViewPhoto: (src: string, name: string) => void;
   onPreview: (pc: Pc) => void;
-  onCrop: (pcId: string, file: File) => void;
+  onCrop: (moduleId: string, pcId: string, file: File) => void;
 }) {
-  const [pcName, setPcName] = useState("");
-  const [renaming, setRenaming] = useState(false);
-  const [nameDraft, setNameDraft] = useState(m.name);
   const dragHo = useRef<string | null>(null);
 
-  function movePc(pc: Pc, dir: -1 | 1) {
-    const cols: (string | null)[] = [...m.hos.map((h) => h.id), null];
+  function movePc(m: Module, pc: Pc, dir: -1 | 1) {
+    const cols: (string | null)[] = [...hos.map((h) => h.id), null];
     const idx = cols.indexOf(pc.hoId ?? null);
     const next = cols[idx + dir];
     if (idx === -1 || next === undefined) return;
-    const label = next === null ? "未分配" : (m.hos.find((h) => h.id === next)?.name ?? "");
+    const label = next === null ? "未分配" : (hos.find((h) => h.id === next)?.name ?? "");
     run(() => setPcHo(m.id, pc.id, next), `已移动到「${label}」`);
   }
 
@@ -487,100 +557,23 @@ function ModuleCard({
     const srcId = dragHo.current;
     dragHo.current = null;
     if (!srcId || srcId === targetId) return;
-    const ids = m.hos.map((h) => h.id);
+    const ids = hos.map((h) => h.id);
     const from = ids.indexOf(srcId);
     const to = ids.indexOf(targetId);
     if (from === -1 || to === -1) return;
     ids.splice(to, 0, ids.splice(from, 1)[0]);
-    run(() => reorderHos(m.id, ids), "已调整栏目顺序");
+    void run(() => reorderHos(ids), "已调整栏目顺序");
   }
 
   return (
-    <div className="group bg-card border rounded-2xl p-4 flex flex-col gap-3 shadow-sm transition-colors hover:border-primary/40">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className={`h-2 w-2 rounded-full shrink-0 dot-${m.status}`} />
-        {renaming ? (
-          <form
-            className="flex-1 flex gap-2 min-w-0"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const n = nameDraft.trim();
-              setRenaming(false);
-              if (n && n !== m.name) run(() => renameModule(m.id, n), "已重命名模组");
-            }}
-          >
-            <Input
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              className="flex-1 h-8"
-              autoFocus
-            />
-            <Button type="submit" size="sm" variant="secondary">
-              确定
-            </Button>
-          </form>
-        ) : (
-          <button
-            className="text-[15px] font-medium flex-1 min-w-0 text-left truncate hover:underline decoration-dotted underline-offset-4"
-            title="点击重命名"
-            onClick={() => {
-              setNameDraft(m.name);
-              setRenaming(true);
-            }}
-          >
-            {m.name}
-          </button>
-        )}
-
-        <div className="flex border rounded-full overflow-hidden shrink-0 flex-wrap rounded-xl">
-          {ORDER.map((s, i) => (
-            <button
-              key={s}
-              type="button"
-              disabled={busy}
-              className={`px-2.5 py-1 text-xs transition-colors ${i > 0 ? "border-l" : ""} ${
-                m.status === s ? `st-${s}` : "text-muted-foreground hover:bg-secondary/70"
-              }`}
-              onClick={() => {
-                if (m.status !== s) run(() => setModuleStatus(m.id, s), `已切换为「${STATUS[s]}」`);
-              }}
-            >
-              {STATUS[s]}
-            </button>
-          ))}
-        </div>
-
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-8 w-8 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          aria-label="删除模组"
-          onClick={() => run(() => removeModule(m.id), "已删除模组")}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-1 items-start">
-        {m.hos.map((ho) => (
-          <HoColumn
-            key={ho.id}
-            module={m}
-            ho={ho}
-            busy={busy}
-            run={run}
-            onViewPhoto={onViewPhoto}
-            onPreview={onPreview}
-            onCrop={onCrop}
-            onMovePc={movePc}
-            dragHo={dragHo}
-            onDropHo={onDropHo}
-          />
-        ))}
+    <div className="flex gap-2 overflow-x-auto pb-1 items-start">
+      {hos.map((ho, i) => (
         <HoColumn
-          key="unassigned"
-          module={m}
-          ho={null}
+          key={ho.id}
+          ho={ho}
+          colIndex={i}
+          colCount={hos.length}
+          modules={modules}
           busy={busy}
           run={run}
           onViewPhoto={onViewPhoto}
@@ -590,37 +583,30 @@ function ModuleCard({
           dragHo={dragHo}
           onDropHo={onDropHo}
         />
-        <div className="shrink-0 w-40">
-          <AddHoButton module={m} busy={busy} run={run} />
-        </div>
+      ))}
+      <HoColumn
+        key="unassigned"
+        ho={null}
+        colIndex={hos.length}
+        colCount={hos.length}
+        modules={modules}
+        busy={busy}
+        run={run}
+        onViewPhoto={onViewPhoto}
+        onPreview={onPreview}
+        onCrop={onCrop}
+        onMovePc={movePc}
+        dragHo={dragHo}
+        onDropHo={onDropHo}
+      />
+      <div className="shrink-0 w-40">
+        <AddHoButton busy={busy} run={run} hos={hos} />
       </div>
-
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const n = pcName.trim();
-          if (!n) return;
-          setPcName("");
-          run(() => addPc(m.id, n), `已添加 PC「${n}」`);
-        }}
-      >
-        <Input
-          value={pcName}
-          onChange={(e) => setPcName(e.target.value)}
-          placeholder="PC 名字"
-          className="flex-1 h-9 bg-background/60"
-        />
-        <Button type="submit" variant="secondary" size="sm" disabled={busy}>
-          <Plus className="h-4 w-4 mr-1" />
-          添加 PC
-        </Button>
-      </form>
     </div>
   );
 }
 
-function AddHoButton({ module: m, busy, run }: { module: Module; busy: boolean; run: Run }) {
+function AddHoButton({ busy, run, hos }: { busy: boolean; run: Run; hos: Ho[] }) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -632,13 +618,13 @@ function AddHoButton({ module: m, busy, run }: { module: Module; busy: boolean; 
         const name = draft.trim();
         setAdding(false);
         setDraft("");
-        run(() => addHo(m.id, name || undefined), name ? `已添加栏目「${name}」` : "已添加栏目");
+        void run(() => addHo(name || undefined), name ? `已添加栏目「${name}」` : "已添加栏目");
       }}
     >
       <Input
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        placeholder={`HO${m.hos.length + 1}`}
+        placeholder={`HO${hos.length + 1}`}
         className="h-8 w-24 px-2 text-xs"
         autoFocus
         onKeyDown={(e) => {
@@ -665,8 +651,10 @@ function AddHoButton({ module: m, busy, run }: { module: Module; busy: boolean; 
 }
 
 function HoColumn({
-  module: m,
   ho,
+  colIndex,
+  colCount,
+  modules,
   busy,
   run,
   onViewPhoto,
@@ -676,14 +664,16 @@ function HoColumn({
   dragHo,
   onDropHo,
 }: {
-  module: Module;
-  ho: import("@/lib/storage").Ho | null;
+  ho: Ho | null;
+  colIndex: number;
+  colCount: number;
+  modules: Module[];
   busy: boolean;
   run: Run;
   onViewPhoto: (src: string, name: string) => void;
   onPreview: (pc: Pc) => void;
-  onCrop: (pcId: string, file: File) => void;
-  onMovePc: (pc: Pc, dir: -1 | 1) => void;
+  onCrop: (moduleId: string, pcId: string, file: File) => void;
+  onMovePc: (m: Module, pc: Pc, dir: -1 | 1) => void;
   dragHo: React.MutableRefObject<string | null>;
   onDropHo: (targetId: string) => void;
 }) {
@@ -691,13 +681,17 @@ function HoColumn({
   const [draft, setDraft] = useState(ho?.name || "");
   const [dragOver, setDragOver] = useState(false);
 
-  const pcs = ho
-    ? m.pcs.filter((p) => p.hoId === ho.id)
-    : m.pcs.filter((p) => !p.hoId || !m.hos.some((h) => h.id === p.hoId));
+  const groups = modules
+    .map((m) => ({
+      module: m,
+      pcs: ho ? m.pcs.filter((p) => p.hoId === ho.id) : m.pcs.filter((p) => !p.hoId),
+    }))
+    .filter((g) => g.pcs.length > 0);
+  const total = groups.reduce((n, g) => n + g.pcs.length, 0);
 
   return (
     <div
-      className={`shrink-0 w-44 flex flex-col gap-2 rounded-xl border p-2 transition-colors ${
+      className={`shrink-0 w-48 flex flex-col gap-2 rounded-xl border p-2 transition-colors ${
         dragOver ? "border-primary/60 bg-primary/5" : "bg-secondary/40 border-border/70"
       }`}
       onDragOver={(e) => {
@@ -732,7 +726,7 @@ function HoColumn({
                   e.preventDefault();
                   const n = draft.trim();
                   setEditing(false);
-                  if (n && n !== ho.name) run(() => renameHo(m.id, ho.id, n), "已重命名栏目");
+                  if (n && n !== ho.name) void run(() => renameHo(ho.id, n), "已重命名栏目");
                 }}
               >
                 <Input
@@ -758,13 +752,13 @@ function HoColumn({
                 {ho.name}
               </button>
             )}
-            <span className="text-[10px] text-muted-foreground/70 shrink-0">{pcs.length}</span>
+            <span className="text-[10px] text-muted-foreground/70 shrink-0">{total}</span>
             <button
               type="button"
               className="text-muted-foreground/50 hover:text-destructive opacity-0 group-hover/col:opacity-100 transition-opacity shrink-0"
               aria-label={`删除栏目 ${ho.name}`}
               disabled={busy}
-              onClick={() => run(() => removeHo(m.id, ho.id), `已删除栏目「${ho.name}」`)}
+              onClick={() => void run(() => removeHo(ho.id), `已删除栏目「${ho.name}」`)}
             >
               <X className="h-3 w-3" />
             </button>
@@ -774,32 +768,140 @@ function HoColumn({
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
-        {pcs.length === 0 && (
+      <div className="flex flex-col gap-3">
+        {groups.length === 0 && (
           <div className="text-[11px] text-muted-foreground/70 text-center py-3">
-            {ho ? "空" : "新 PC 会出现在这里"}
+            {ho ? "空" : "在下方模组管理中添加 PC"}
           </div>
         )}
-        {pcs.map((p, i) => (
-          <PcEntry
-            key={p.id}
-            module={m}
-            pc={p}
-            busy={busy}
-            run={run}
-            onViewPhoto={onViewPhoto}
-            onPreview={onPreview}
-            onCrop={onCrop}
-            onMoveLeft={() => onMovePc(p, -1)}
-            onMoveRight={() => onMovePc(p, 1)}
-            canLeft={ho !== null || i > 0}
-            canRight={ho === null || m.hos.findIndex((h) => h.id === ho?.id) < m.hos.length - 1}
-          />
+        {groups.map(({ module: m, pcs }) => (
+          <div key={m.id} className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5 px-0.5">
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 dot-${m.status}`} />
+              <span className="text-[11px] font-medium text-muted-foreground truncate">{m.name}</span>
+            </div>
+            {pcs.map((p) => (
+              <PcEntry
+                key={p.id}
+                module={m}
+                pc={p}
+                busy={busy}
+                run={run}
+                onViewPhoto={onViewPhoto}
+                onPreview={onPreview}
+                onCrop={onCrop}
+                onMoveLeft={() => onMovePc(m, p, -1)}
+                onMoveRight={() => onMovePc(m, p, 1)}
+                canLeft={colIndex > 0}
+                canRight={colIndex < colCount}
+              />
+            ))}
+          </div>
         ))}
       </div>
     </div>
   );
 }
+
+/* ================= module management rows ================= */
+
+function ModuleRow({ module: m, busy, run }: { module: Module; busy: boolean; run: Run }) {
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(m.name);
+  const [pcName, setPcName] = useState("");
+
+  return (
+    <div className="group bg-card border rounded-xl px-3 py-2 flex items-center gap-2 flex-wrap shadow-sm transition-colors hover:border-primary/40">
+      <span className={`h-2 w-2 rounded-full shrink-0 dot-${m.status}`} />
+      {renaming ? (
+        <form
+          className="flex-1 flex gap-2 min-w-0"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const n = nameDraft.trim();
+            setRenaming(false);
+            if (n && n !== m.name) void run(() => renameModule(m.id, n), "已重命名模组");
+          }}
+        >
+          <Input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            className="flex-1 h-8"
+            autoFocus
+          />
+          <Button type="submit" size="sm" variant="secondary">
+            确定
+          </Button>
+        </form>
+      ) : (
+        <button
+          className="text-sm font-medium min-w-0 text-left truncate hover:underline decoration-dotted underline-offset-4"
+          title="点击重命名"
+          onClick={() => {
+            setNameDraft(m.name);
+            setRenaming(true);
+          }}
+        >
+          {m.name}
+        </button>
+      )}
+
+      <span className="text-[11px] text-muted-foreground shrink-0">{m.pcs.length} 个 PC</span>
+
+      <div className="flex border rounded-full overflow-hidden shrink-0 ml-auto">
+        {ORDER.map((s, i) => (
+          <button
+            key={s}
+            type="button"
+            disabled={busy}
+            className={`px-2 py-1 text-[11px] transition-colors ${i > 0 ? "border-l" : ""} ${
+              m.status === s ? `st-${s}` : "text-muted-foreground hover:bg-secondary/70"
+            }`}
+            onClick={() => {
+              if (m.status !== s) void run(() => setModuleStatus(m.id, s), `已切换为「${STATUS[s]}」`);
+            }}
+          >
+            {STATUS[s]}
+          </button>
+        ))}
+      </div>
+
+      <form
+        className="flex gap-1.5 shrink-0"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const n = pcName.trim();
+          if (!n) return;
+          setPcName("");
+          void run(() => addPc(m.id, n), `已添加 PC「${n}」（在未分配栏）`);
+        }}
+      >
+        <Input
+          value={pcName}
+          onChange={(e) => setPcName(e.target.value)}
+          placeholder="PC 名字"
+          className="h-8 w-32 px-2 text-xs"
+        />
+        <Button type="submit" variant="secondary" size="sm" className="h-8 px-2 text-xs" disabled={busy}>
+          <Plus className="h-3.5 w-3.5 mr-0.5" />
+          PC
+        </Button>
+      </form>
+
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-8 w-8 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+        aria-label="删除模组"
+        onClick={() => void run(() => removeModule(m.id), "已删除模组")}
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
+/* ================= PC entry ================= */
 
 function PcEntry({
   module: m,
@@ -820,9 +922,9 @@ function PcEntry({
   run: Run;
   onViewPhoto: (src: string, name: string) => void;
   onPreview: (pc: Pc) => void;
-  onCrop: (pcId: string, file: File) => void;
-  onMoveLeft?: () => void;
-  onMoveRight?: () => void;
+  onCrop: (moduleId: string, pcId: string, file: File) => void;
+  onMoveLeft: () => void;
+  onMoveRight: () => void;
   canLeft: boolean;
   canRight: boolean;
 }) {
@@ -830,10 +932,6 @@ function PcEntry({
   const cardRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(p.name);
-
-  async function onPhotoPicked(file: File) {
-    onCrop(p.id, file);
-  }
 
   async function onCard(file: File) {
     try {
@@ -899,7 +997,7 @@ function PcEntry({
                 e.preventDefault();
                 const n = draft.trim();
                 setEditing(false);
-                if (n && n !== p.name) run(() => renamePc(m.id, p.id, n), "已重命名 PC");
+                if (n && n !== p.name) void run(() => renamePc(m.id, p.id, n), "已重命名 PC");
               }}
             >
               <Input
@@ -1002,7 +1100,7 @@ function PcEntry({
           className="h-6 w-6 hover:text-destructive ml-auto"
           aria-label="移除该 PC"
           disabled={busy}
-          onClick={() => run(() => removePc(m.id, p.id), "已移除 PC")}
+          onClick={() => void run(() => removePc(m.id, p.id), "已移除 PC")}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
@@ -1016,7 +1114,7 @@ function PcEntry({
         onChange={(e) => {
           const f = e.target.files?.[0];
           e.target.value = "";
-          if (f) onPhotoPicked(f);
+          if (f) onCrop(m.id, p.id, f);
         }}
       />
       <input
