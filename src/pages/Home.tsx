@@ -857,16 +857,20 @@ function HoBoard({
   }
 
   function beginDrag(payload: DragPayload, e: React.PointerEvent) {
-    e.preventDefault();
     pending.current = { payload, startX: e.clientX, startY: e.clientY };
     const onMove = (ev: PointerEvent) => {
       const p = pending.current;
       if (!p) return;
       if (!active.current) {
-        if (Math.hypot(ev.clientX - p.startX, ev.clientY - p.startY) < 8) return;
+        if (Math.hypot(ev.clientX - p.startX, ev.clientY - p.startY) < 8) {
+          // 拖动待定中：只阻止选字/拖图等默认行为，不能拦截点击
+          ev.preventDefault();
+          return;
+        }
         active.current = true;
         setDrag({ ...p.payload, active: true, x: ev.clientX, y: ev.clientY, overHo: undefined, overBeforePcId: null });
       }
+      ev.preventDefault();
       const hit = hitTest(ev.clientX, ev.clientY, p.payload.kind);
       setDrag((d) => (d ? { ...d, x: ev.clientX, y: ev.clientY, ...hit } : d));
     };
@@ -880,6 +884,7 @@ function HoBoard({
       active.current = false;
       setDrag(null);
       if (!p || !wasActive) return;
+      ev.preventDefault(); // 拖完松手不触发点击
       commitDrag(p.payload, hitTest(ev.clientX, ev.clientY, p.payload.kind));
     };
     window.addEventListener("pointermove", onMove);
@@ -1423,8 +1428,15 @@ function PcEntry({
     <div
       ref={(el) => pcRef(p.id, el)}
       className={`group/pc bg-card border rounded-xl p-2 flex flex-col gap-1.5 transition-all hover:border-primary/40 ${
-        isDragging ? "opacity-40 scale-95 rotate-1" : ""
+        isDragging ? "opacity-40 scale-95 rotate-1" : "sm:cursor-grab sm:active:cursor-grabbing"
       }`}
+      onPointerDown={(e) => {
+        // 整卡可拖（桌面鼠标习惯）；输入框上除外，手机端仍建议用手柄（整卡滑动留给横向滚动）
+        if (window.matchMedia("(pointer: coarse)").matches) return;
+        const t = e.target as HTMLElement;
+        if (t.closest("input, textarea, select, [contenteditable='true']")) return;
+        onDragStart({ kind: "pc", moduleId: m.id, pcId: p.id, label: p.name }, e);
+      }}
     >
       <div className="flex items-center gap-2">
         {p.photo ? (
