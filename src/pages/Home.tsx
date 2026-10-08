@@ -59,6 +59,7 @@ import {
   loadBook,
   buildSheetRender,
   extractAttrs,
+  extractAttrsFromBook,
   type Book,
   type PcAttr,
   type SheetRender,
@@ -405,6 +406,32 @@ function ThemePicker() {
 
 /* ================= card preview ================= */
 
+// 把「总点数(不含运) / 不算幸运」的数值显示替换为幸运值
+function applyLuckDisplay(view: SheetRender, luck: number | null) {
+  if (luck === null) return;
+  for (const row of view.rows) {
+    for (let ci = 0; ci < row.cells.length; ci++) {
+      const cell = row.cells[ci];
+      if (!cell || !/(不含运|不算幸运)/.test(cell.v)) continue;
+      const digits = cell.v.replace(/[^0-9]/g, "");
+      if (digits) {
+        cell.v = `幸运：${luck}`;
+        continue;
+      }
+      cell.v = "幸运：";
+      for (let k = ci + 1; k <= ci + 4 && k < row.cells.length; k++) {
+        const n = row.cells[k];
+        if (!n) continue;
+        if (/^\s*\d+\s*$/.test(n.v)) {
+          n.v = String(luck);
+          break;
+        }
+        if (n.v.trim() !== "") break;
+      }
+    }
+  }
+}
+
 function PreviewModal({
   preview,
   onClose,
@@ -426,6 +453,16 @@ function PreviewModal({
   const safeTab = Math.min(tab, Math.max(0, sheets.length - 1));
   const sheet = sheets[safeTab];
 
+  // 用户偏好：卡背头部的「总点数(不含运)/不算幸运」不显示点数，显示幸运值
+  const luckValue = useMemo(() => {
+    try {
+      const attrs = extractAttrsFromBook(preview.book);
+      return attrs?.find((a) => /luck|幸运/i.test(a.label))?.value ?? null;
+    } catch {
+      return null;
+    }
+  }, [preview.book]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -443,7 +480,9 @@ function PreviewModal({
     }
     setBuilding(true);
     const t = window.setTimeout(() => {
-      cache.current.set(safeTab, buildSheetRender(sheet));
+      const v = buildSheetRender(sheet);
+      applyLuckDisplay(v, luckValue);
+      cache.current.set(safeTab, v);
       setBuilding(false);
       // auto fit-to-width the first time a sheet is rendered
       if (!fitted.current.has(safeTab)) {
@@ -459,7 +498,7 @@ function PreviewModal({
       }
     }, 30);
     return () => window.clearTimeout(t);
-  }, [sheet, safeTab]);
+  }, [sheet, safeTab, luckValue]);
 
   const view = cache.current.get(safeTab);
   const naturalWidth = view ? view.cols.reduce((a, b) => a + b, 0) : 0;
@@ -514,7 +553,7 @@ function PreviewModal({
           </Button>
         </div>
         {sheets.length > 1 && (
-          <div className="flex gap-1.5 px-4 py-2 border-b flex-wrap max-h-36 overflow-y-auto">
+          <div className="flex gap-1.5 px-4 py-2 border-b flex-wrap max-h-36 overflow-y-auto shrink-0">
             {sheets.map((s, i) => (
               <button
                 key={s.name || i}
