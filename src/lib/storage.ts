@@ -266,6 +266,32 @@ export async function setPcHo(moduleId: string, pcId: string, hoId: string | nul
   }
 }
 
+export async function movePc(
+  moduleId: string,
+  pcId: string,
+  targetHoId: string | null,
+  beforePcId?: string | null
+): Promise<void> {
+  if ((await detectMode()) === "server") {
+    await serverReq(`/api/modules/${moduleId}/pcs/${pcId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ hoId: targetHoId, beforePcId: beforePcId ?? null }),
+    });
+    return;
+  }
+  const s = loadLocal();
+  const m = findModule(s, moduleId);
+  const p = m?.pcs.find((x) => x.id === pcId);
+  if (!m || !p) return;
+  if (targetHoId === null || s.hos.some((h) => h.id === targetHoId)) p.hoId = targetHoId;
+  const rest = m.pcs.filter((x) => x.id !== pcId);
+  const idx = beforePcId ? rest.findIndex((x) => x.id === beforePcId) : -1;
+  if (idx >= 0) rest.splice(idx, 0, p);
+  else rest.push(p);
+  m.pcs = rest;
+  saveLocal(s);
+}
+
 export async function setPcAttrs(moduleId: string, pcId: string, attrs: PcAttr[] | null): Promise<void> {
   if ((await detectMode()) === "server") {
     await serverReq(`/api/modules/${moduleId}/pcs/${pcId}`, {

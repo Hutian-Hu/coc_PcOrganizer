@@ -47,6 +47,7 @@ import {
   addPc,
   renamePc,
   setPcHo,
+  movePc,
   removePc,
   setPhoto,
   setCard,
@@ -253,7 +254,7 @@ export default function Home() {
         </div>
 
         <form
-          className="flex gap-2 items-center bg-card border rounded-xl p-2 shadow-sm"
+          className="flex gap-2 items-center bg-card border rounded-xl p-2 shadow-sm flex-wrap"
           onSubmit={(e) => {
             e.preventDefault();
             const name = newName.trim();
@@ -518,7 +519,7 @@ function PreviewModal({
         className="bg-card border rounded-2xl w-full max-w-5xl max-h-[88vh] flex flex-col overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2.5 px-5 py-3 border-b bg-secondary/40">
+        <div className="flex items-center gap-2.5 px-5 py-3 border-b bg-secondary/40 flex-wrap">
           <span className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-primary/15 text-primary shrink-0">
             <FileSpreadsheet className="h-4 w-4" />
           </span>
@@ -738,6 +739,21 @@ function CropModal({
 
 /* ================= HO board: HO slots -> modules -> PCs ================= */
 
+// 指针拖拽（鼠标 + 触屏通用）：PC 可换 HO 位，也可在同一 HO 位内排序；HO 栏目可排序
+type DragPayload =
+  | { kind: "pc"; moduleId: string; pcId: string; label: string }
+  | { kind: "ho"; hoId: string; label: string };
+
+type DragInfo = DragPayload & {
+  active: boolean;
+  x: number;
+  y: number;
+  overHo: string | null | undefined; // 目标栏目 id；undefined = 不在任何栏目上
+  overBeforePcId: string | null; // 插入到该 PC 之前（null = 放到该栏末尾）
+};
+
+const UNASSIGNED = "__unassigned__";
+
 function HoBoard({
   hos,
   modules,
@@ -755,57 +771,172 @@ function HoBoard({
   onPreview: (pc: Pc) => void;
   onCrop: (moduleId: string, pcId: string, file: File) => void;
 }) {
-  const dragHo = useRef<string | null>(null);
-  const dragPc = useRef<{ moduleId: string; pcId: string } | null>(null);
+  const [drag, setDrag] = useState<DragInfo | null>(null);
+  const pending = useRef<{ payload: DragPayload; startX: number; startY: number } | null>(null);
+  const active = useRef(false);
+  const colRefs = useRef(new Map<string, HTMLElement>());
+  const pcRefs = useRef(new Map<string, HTMLElement>());
+  const pcHo = useRef(new Map<string, string | null>());
 
-  function onDropHo(targetId: string) {
-    const srcId = dragHo.current;
-    dragHo.current = null;
-    if (!srcId || srcId === targetId) return;
-    const ids = hos.map((h) => h.id);
-    const from = ids.indexOf(srcId);
-    const to = ids.indexOf(targetId);
-    if (from === -1 || to === -1) return;
-    ids.splice(to, 0, ids.splice(from, 1)[0]);
-    void run(() => reorderHos(ids), "已调整栏目顺序");
+  useEffect(() => {
+    const map = new Map<string, string | null>();
+    for (const m of modules) for (const p of m.pcs) map.set(p.id, p.hoId ?? null);
+    pcHo.current = map;
+  }, [modules]);
+
+  const registerCol = useCallback((key: string, el: HTMLElement | null) => {
+    if (el) colRefs.current.set(key, el);
+    else colRefs.current.delete(key);
+  }, []);
+
+  const registerPc = useCallback((pcId: string, el: HTMLElement | null) => {
+    if (el) pcRefs.current.set(pcId, el);
+    else pcRefs.current.delete(pcId);
+  }, []);
+
+  function hitTest(
+    x: number,
+    y: number,
+    kind: "pc" | "ho"
+  ): { overHo: string | null | undefined; overBeforePcId: string | null } {
+    let overHo: string | null | undefined;
+    for (const [key, el] of colRefs.current) {
+      const r = el.getBoundingClientRect();
+      if (x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 8 && y <= r.bottom + 64) {
+        overHo = key === UNASSIGNED ? null : key;
+        break;
+      }
+    }
+    if (kind === "ho" || overHo === undefined) return { overHo, overBeforePcId: null };
+    let before: string | null = null;
+    for (const [pcId, el] of pcRefs.current) {
+      if ((pcHo.current.get(pcId) ?? null) !== overHo) continue;
+      const r = el.getBoundingClientRect();
+      if (y < r.top + r.height / 2) {
+        before = pcId;
+        break;
+      }
+    }
+    return { overHo, overBeforePcId: before };
+  }
+
+  function commitDrag(
+    payload: DragPayload,
+    hit: { overHo: string | null | undefined; overBeforePcId: string | null }
+  ) {
+    if (payload.kind === "ho") {
+      const targetId = hit.overHo;
+      if (!targetId || targetId === payload.hoId) return;
+      const ids = hos.map((h) => h.id);
+      const from = ids.indexOf(payload.hoId);
+      const to = ids.indexOf(targetId);
+      if (from === -1 || to === -1) return;
+      ids.splice(to, 0, ids.splice(from, 1)[0]);
+      void run(() => reorderHos(ids), "已调整栏目顺序");
+      return;
+    }
+    const target = hit.overHo;
+    if (target === undefined) return; // 落在栏目之外，不处理
+    const cur = pcHo.current.get(payload.pcId) ?? null;
+    if (cur !== target) {
+      const label = target ? (hos.find((h) => h.id === target)?.name ?? "") : "未分配";
+      void run(() => setPcHo(payload.moduleId, payload.pcId, target), `已移动到「${label}」`);
+      return;
+    }
+    // 同一 HO 位内排序
+    const before = hit.overBeforePcId;
+    if (before === payload.pcId) return;
+    const order = modules
+      .flatMap((m) => m.pcs)
+      .filter((p) => (p.hoId ?? null) === target)
+      .map((p) => p.id);
+    const from = order.indexOf(payload.pcId);
+    const to = before ? order.indexOf(before) : order.length;
+    if (from === -1 || to === -1 || to === from || to === from + 1) return; // 位置未变
+    void run(() => movePc(payload.moduleId, payload.pcId, target, before), "已调整顺序");
+  }
+
+  function beginDrag(payload: DragPayload, e: React.PointerEvent) {
+    e.preventDefault();
+    pending.current = { payload, startX: e.clientX, startY: e.clientY };
+    const onMove = (ev: PointerEvent) => {
+      const p = pending.current;
+      if (!p) return;
+      if (!active.current) {
+        if (Math.hypot(ev.clientX - p.startX, ev.clientY - p.startY) < 8) return;
+        active.current = true;
+        setDrag({ ...p.payload, active: true, x: ev.clientX, y: ev.clientY, overHo: undefined, overBeforePcId: null });
+      }
+      const hit = hitTest(ev.clientX, ev.clientY, p.payload.kind);
+      setDrag((d) => (d ? { ...d, x: ev.clientX, y: ev.clientY, ...hit } : d));
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      const p = pending.current;
+      pending.current = null;
+      const wasActive = active.current;
+      active.current = false;
+      setDrag(null);
+      if (!p || !wasActive) return;
+      commitDrag(p.payload, hitTest(ev.clientX, ev.clientY, p.payload.kind));
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }
 
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1 items-start">
-      {hos.map((ho, i) => (
+    <>
+      <div className="flex gap-2 overflow-x-auto pb-1 items-start">
+        {hos.map((ho, i) => (
+          <HoColumn
+            key={ho.id}
+            ho={ho}
+            colIndex={i}
+            colKey={ho.id}
+            modules={modules}
+            busy={busy}
+            run={run}
+            onViewPhoto={onViewPhoto}
+            onPreview={onPreview}
+            onCrop={onCrop}
+            drag={drag}
+            registerCol={registerCol}
+            registerPc={registerPc}
+            onDragStart={beginDrag}
+          />
+        ))}
         <HoColumn
-          key={ho.id}
-          ho={ho}
-          colIndex={i}
+          key="unassigned"
+          ho={null}
+          colIndex={hos.length}
+          colKey={UNASSIGNED}
           modules={modules}
           busy={busy}
           run={run}
           onViewPhoto={onViewPhoto}
           onPreview={onPreview}
           onCrop={onCrop}
-          dragHo={dragHo}
-          dragPc={dragPc}
-          onDropHo={onDropHo}
+          drag={drag}
+          registerCol={registerCol}
+          registerPc={registerPc}
+          onDragStart={beginDrag}
         />
-      ))}
-      <HoColumn
-        key="unassigned"
-        ho={null}
-        colIndex={hos.length}
-        modules={modules}
-        busy={busy}
-        run={run}
-        onViewPhoto={onViewPhoto}
-        onPreview={onPreview}
-        onCrop={onCrop}
-        dragHo={dragHo}
-        dragPc={dragPc}
-        onDropHo={onDropHo}
-      />
-      <div className="shrink-0 w-40">
-        <AddHoButton busy={busy} run={run} hos={hos} />
+        <div className="shrink-0 w-40">
+          <AddHoButton busy={busy} run={run} hos={hos} />
+        </div>
       </div>
-    </div>
+      {drag?.active && (
+        <div className="fixed z-50 pointer-events-none" style={{ left: drag.x + 12, top: drag.y + 14 }}>
+          <div className="rounded-lg bg-primary text-primary-foreground text-xs font-medium px-2.5 py-1.5 shadow-xl flex items-center gap-1.5">
+            <GripVertical className="h-3 w-3" />
+            {drag.label}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -856,33 +987,37 @@ function AddHoButton({ busy, run, hos }: { busy: boolean; run: Run; hos: Ho[] })
 function HoColumn({
   ho,
   colIndex,
+  colKey,
   modules,
   busy,
   run,
   onViewPhoto,
   onPreview,
   onCrop,
-  dragHo,
-  dragPc,
-  onDropHo,
+  drag,
+  registerCol,
+  registerPc,
+  onDragStart,
 }: {
   ho: Ho | null;
   colIndex: number;
+  colKey: string;
   modules: Module[];
   busy: boolean;
   run: Run;
   onViewPhoto: (src: string, name: string) => void;
   onPreview: (pc: Pc) => void;
   onCrop: (moduleId: string, pcId: string, file: File) => void;
-  dragHo: React.MutableRefObject<string | null>;
-  dragPc: React.MutableRefObject<{ moduleId: string; pcId: string } | null>;
-  onDropHo: (targetId: string) => void;
+  drag: DragInfo | null;
+  registerCol: (key: string, el: HTMLElement | null) => void;
+  registerPc: (pcId: string, el: HTMLElement | null) => void;
+  onDragStart: (payload: DragPayload, e: React.PointerEvent) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ho?.name || "");
-  const [dragOver, setDragOver] = useState(false);
 
   const hoVar = ho ? `var(--ho-${(colIndex % 4) + 1})` : "var(--border)";
+  const colHoId = ho ? ho.id : null;
 
   const groups = modules
     .map((m) => ({
@@ -892,38 +1027,16 @@ function HoColumn({
     .filter((g) => g.pcs.length > 0);
   const total = groups.reduce((n, g) => n + g.pcs.length, 0);
 
+  const dragOver = !!drag?.active && drag.overHo !== undefined && drag.overHo === colHoId;
+  const pcDrag = drag?.active && drag.kind === "pc" ? drag : null;
+
   return (
     <div
-      className={`shrink-0 w-48 flex flex-col gap-2 rounded-xl border p-2 transition-colors ${
+      ref={(el) => registerCol(colKey, el)}
+      className={`shrink-0 w-44 sm:w-48 flex flex-col gap-2 rounded-xl border p-2 transition-colors ${
         dragOver ? "border-primary/60 bg-primary/5" : "bg-secondary/40 border-border/70"
       }`}
       style={{ borderTop: `3px solid hsl(${hoVar})` }}
-      onDragOver={(e) => {
-        if (dragHo.current || dragPc.current) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          setDragOver(true);
-        }
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-        const pcDrag = dragPc.current;
-        dragPc.current = null;
-        if (pcDrag) {
-          const target = ho ? ho.id : null;
-          const cur = modules
-            .flatMap((m) => m.pcs)
-            .find((p) => p.id === pcDrag.pcId)?.hoId ?? null;
-          if (cur !== target) {
-            const label = ho ? ho.name : "未分配";
-            void run(() => setPcHo(pcDrag.moduleId, pcDrag.pcId, target), `已移动到「${label}」`);
-          }
-          return;
-        }
-        if (ho) onDropHo(ho.id);
-      }}
     >
       <div
         className="flex items-center gap-1 min-h-7 rounded-lg px-1"
@@ -935,15 +1048,15 @@ function HoColumn({
               className="h-2 w-2 rounded-full shrink-0"
               style={{ background: `hsl(${hoVar})` }}
             />
-            <span
-              className="text-muted-foreground/50 cursor-grab shrink-0"
+            <button
+              type="button"
+              className="text-muted-foreground/50 hover:text-foreground cursor-grab active:cursor-grabbing touch-none shrink-0"
               title="拖动排序"
-              draggable
-              onDragStart={() => (dragHo.current = ho.id)}
-              onDragEnd={() => (dragHo.current = null)}
+              aria-label={`拖动栏目 ${ho.name}`}
+              onPointerDown={(e) => onDragStart({ kind: "ho", hoId: ho.id, label: ho.name }, e)}
             >
               <GripVertical className="h-3.5 w-3.5" />
-            </span>
+            </button>
             {editing ? (
               <form
                 className="flex items-center gap-1 flex-1 min-w-0"
@@ -1009,20 +1122,29 @@ function HoColumn({
               />
             </div>
             {pcs.map((p) => (
-              <PcEntry
-                key={p.id}
-                module={m}
-                pc={p}
-                busy={busy}
-                run={run}
-                onViewPhoto={onViewPhoto}
-                onPreview={onPreview}
-                onCrop={onCrop}
-                dragPc={dragPc}
-              />
+              <div key={p.id} className="flex flex-col gap-1.5">
+                {pcDrag && pcDrag.overHo === colHoId && pcDrag.overBeforePcId === p.id && pcDrag.pcId !== p.id && (
+                  <div className="h-0.5 rounded-full bg-primary shadow-[0_0_6px_hsl(var(--primary))]" />
+                )}
+                <PcEntry
+                  module={m}
+                  pc={p}
+                  busy={busy}
+                  run={run}
+                  onViewPhoto={onViewPhoto}
+                  onPreview={onPreview}
+                  onCrop={onCrop}
+                  pcRef={registerPc}
+                  onDragStart={onDragStart}
+                  isDragging={!!pcDrag && pcDrag.pcId === p.id}
+                />
+              </div>
             ))}
           </div>
         ))}
+        {pcDrag && pcDrag.overHo === colHoId && pcDrag.overBeforePcId === null && total > 0 && (
+          <div className="h-0.5 rounded-full bg-primary shadow-[0_0_6px_hsl(var(--primary))]" />
+        )}
       </div>
     </div>
   );
@@ -1246,7 +1368,9 @@ function PcEntry({
   onViewPhoto,
   onPreview,
   onCrop,
-  dragPc,
+  pcRef,
+  onDragStart,
+  isDragging,
 }: {
   module: Module;
   pc: Pc;
@@ -1255,13 +1379,14 @@ function PcEntry({
   onViewPhoto: (src: string, name: string) => void;
   onPreview: (pc: Pc) => void;
   onCrop: (moduleId: string, pcId: string, file: File) => void;
-  dragPc: React.MutableRefObject<{ moduleId: string; pcId: string } | null>;
+  pcRef: (pcId: string, el: HTMLElement | null) => void;
+  onDragStart: (payload: DragPayload, e: React.PointerEvent) => void;
+  isDragging: boolean;
 }) {
   const photoRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(p.name);
-  const [dragging, setDragging] = useState(false);
 
   async function onCard(file: File) {
     try {
@@ -1296,20 +1421,10 @@ function PcEntry({
 
   return (
     <div
+      ref={(el) => pcRef(p.id, el)}
       className={`group/pc bg-card border rounded-xl p-2 flex flex-col gap-1.5 transition-all hover:border-primary/40 ${
-        dragging ? "opacity-40 scale-95 rotate-1" : "cursor-grab active:cursor-grabbing"
+        isDragging ? "opacity-40 scale-95 rotate-1" : ""
       }`}
-      draggable
-      onDragStart={(e) => {
-        dragPc.current = { moduleId: m.id, pcId: p.id };
-        e.dataTransfer.setData("text/plain", p.id);
-        e.dataTransfer.effectAllowed = "move";
-        setDragging(true);
-      }}
-      onDragEnd={() => {
-        dragPc.current = null;
-        setDragging(false);
-      }}
     >
       <div className="flex items-center gap-2">
         {p.photo ? (
@@ -1398,7 +1513,16 @@ function PcEntry({
         </div>
       </div>
 
-      <div className="flex items-center gap-0.5 opacity-0 group-hover/pc:opacity-100 focus-within:opacity-100 transition-opacity">
+      <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover/pc:opacity-100 focus-within:opacity-100 transition-opacity">
+        <button
+          type="button"
+          className="h-6 w-6 inline-flex items-center justify-center text-muted-foreground/60 hover:text-foreground cursor-grab active:cursor-grabbing touch-none shrink-0"
+          aria-label={`拖动 ${p.name}`}
+          title="拖动可换 HO 位或调整顺序"
+          onPointerDown={(e) => onDragStart({ kind: "pc", moduleId: m.id, pcId: p.id, label: p.name }, e)}
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
         {!p.photo && (
           <Button
             size="icon"

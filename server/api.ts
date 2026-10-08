@@ -271,6 +271,15 @@ async function handle(req: any, res: any, url: string) {
     else if (typeof body.hoId === "string" && state.hos.some((h) => h.id === body.hoId)) {
       p.hoId = body.hoId;
     }
+    // 同模组内调整顺序：把该 PC 移到 beforePcId 之前（null 表示放到末尾）
+    if (body.beforePcId !== undefined) {
+      const rest = m.pcs.filter((x) => x.id !== p.id);
+      const idx =
+        body.beforePcId === null ? -1 : rest.findIndex((x) => x.id === String(body.beforePcId));
+      if (idx >= 0) rest.splice(idx, 0, p);
+      else rest.push(p);
+      m.pcs = rest;
+    }
     if (body.attrs !== undefined) {
       if (body.attrs === null) {
         p.attrs = null;
