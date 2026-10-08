@@ -37,6 +37,8 @@
     /* 语义色 */
     --morandi-planned: 9 20% 66%;      /* 藕粉（卫星中） */
     --morandi-ongoing: 96 14% 45%;     /* 灰绿（进行中） */
+    --morandi-paused: 205 16% 66%;     /* 灰蓝（暂停中） */
+    --morandi-disbanded: 285 9% 60%;   /* 灰紫（已散桌） */
     --morandi-finished: 40 6% 58%;     /* 暖灰（已结团） */
   }
 
@@ -91,12 +93,22 @@
     background-color: hsl(var(--morandi-ongoing) / 0.2);
     color: hsl(96 20% 30%);
   }
+  .st-paused {
+    background-color: hsl(var(--morandi-paused) / 0.22);
+    color: hsl(205 22% 38%);
+  }
+  .st-disbanded {
+    background-color: hsl(var(--morandi-disbanded) / 0.2);
+    color: hsl(285 12% 38%);
+  }
   .st-finished {
     background-color: hsl(var(--morandi-finished) / 0.2);
     color: hsl(40 8% 42%);
   }
   .dot-planned { background-color: hsl(var(--morandi-planned)); }
   .dot-ongoing { background-color: hsl(var(--morandi-ongoing)); }
+  .dot-paused { background-color: hsl(var(--morandi-paused)); }
+  .dot-disbanded { background-color: hsl(var(--morandi-disbanded)); }
   .dot-finished { background-color: hsl(var(--morandi-finished)); }
 
   /* HO 栏目 chip */

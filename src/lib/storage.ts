@@ -3,7 +3,7 @@
 // - "local":  static hosting (e.g. GitHub Pages) — data lives in this browser's localStorage
 // The mode is detected once on first use: if /api/state answers, use the server.
 
-export type Status = "planned" | "ongoing" | "finished";
+export type Status = "planned" | "ongoing" | "paused" | "disbanded" | "finished";
 export type CardMeta = { name: string; sizeBytes: number; data?: string };
 export type Ho = { id: string; name: string };
 export type Pc = { id: string; name: string; photo: string | null; card: CardMeta | null; hoId: string | null };
@@ -169,6 +169,23 @@ export async function removeHo(moduleId: string, hoId: string): Promise<void> {
   }
 }
 
+export async function reorderHos(moduleId: string, hoIds: string[]): Promise<void> {
+  if ((await detectMode()) === "server") {
+    await serverReq(`/api/modules/${moduleId}/hos/order`, {
+      method: "PUT",
+      body: JSON.stringify({ hoIds }),
+    });
+    return;
+  }
+  const s = loadLocal();
+  const m = findModule(s, moduleId);
+  if (m) {
+    const ranked = new Map(hoIds.map((id, i) => [id, i]));
+    m.hos.sort((a, b) => (ranked.get(a.id) ?? 999) - (ranked.get(b.id) ?? 999));
+    saveLocal(s);
+  }
+}
+
 export async function addPc(moduleId: string, name: string): Promise<void> {
   if ((await detectMode()) === "server") {
     await serverReq(`/api/modules/${moduleId}/pcs`, { method: "POST", body: JSON.stringify({ name }) });
@@ -238,22 +255,35 @@ export async function setPhoto(moduleId: string, pcId: string, photo: string | n
   saveLocal(s);
 }
 
-export async function setCard(
-  moduleId: string,
-  pcId: string,
-  payload: { name: string; data: string; sizeBytes: number }
-): Promise<void> {
+export async function setCard(moduleId: string, pcId: string, file: File): Promise<void> {
   if ((await detectMode()) === "server") {
-    await serverReq(`/api/modules/${moduleId}/pcs/${pcId}/card`, {
+    // raw binary upload avoids any base64/text encoding issues
+    const r = await fetch(`/api/modules/${moduleId}/pcs/${pcId}/card`, {
       method: "PUT",
-      body: JSON.stringify({ name: payload.name, data: payload.data }),
+      headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) },
+      body: file,
     });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || `上传失败 (${r.status})`);
+    }
     return;
   }
+  const buf = await file.arrayBuffer();
   const s = loadLocal();
   const p = findModule(s, moduleId)?.pcs.find((x) => x.id === pcId);
-  if (p) p.card = { name: payload.name, sizeBytes: payload.sizeBytes, data: payload.data };
+  if (p) p.card = { name: file.name, sizeBytes: buf.byteLength, data: bufToBase64(buf) };
   saveLocal(s);
+}
+
+function bufToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let out = "";
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) {
+    out += String.fromCharCode(...bytes.subarray(i, i + step));
+  }
+  return btoa(out);
 }
 
 // Fetch the card file content for preview/download.
@@ -270,6 +300,9 @@ export async function getCardArrayBuffer(pcId: string): Promise<ArrayBuffer> {
         const bin = atob(p.card.data);
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        if (p.card.sizeBytes && bytes.length !== p.card.sizeBytes) {
+          throw new Error("卡背数据已损坏（大小校验失败），请重新上传");
+        }
         return bytes.buffer;
       }
     }

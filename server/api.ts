@@ -9,14 +9,14 @@ const DATA_DIR = path.join(ROOT, "server-data");
 const STATE_FILE = path.join(DATA_DIR, "state.json");
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 
-type Status = "planned" | "ongoing" | "finished";
+type Status = "planned" | "ongoing" | "paused" | "disbanded" | "finished";
 type CardMeta = { name: string; sizeBytes: number; storedName: string };
 type Ho = { id: string; name: string };
 type Pc = { id: string; name: string; photo: string | null; card: CardMeta | null; hoId: string | null };
 type Module = { id: string; name: string; status: Status; hos: Ho[]; pcs: Pc[] };
 type State = { modules: Module[]; updatedAt: string };
 
-const STATUSES: Status[] = ["planned", "ongoing", "finished"];
+const STATUSES: Status[] = ["planned", "ongoing", "paused", "disbanded", "finished"];
 
 function defaultHos(): Ho[] {
   return [1, 2, 3, 4].map((n) => ({ id: uid("h"), name: `HO${n}` }));
@@ -121,7 +121,11 @@ function findPc(state: State, moduleId: string, pcId: string) {
 async function handle(req: any, res: any, url: string) {
   const method = req.method || "GET";
   const seg = url.split("/").filter(Boolean); // ["api", ...]
-  const body = method === "GET" || method === "DELETE" ? {} : await readJson(req);
+  const ct = String(req.headers["content-type"] || "");
+  const body =
+    method === "GET" || method === "DELETE" || !ct.includes("application/json")
+      ? {}
+      : await readJson(req);
   const state = loadState();
 
   // GET /api/state
@@ -220,6 +224,17 @@ async function handle(req: any, res: any, url: string) {
     return json(res, 200, { ok: true });
   }
 
+  // PUT /api/modules/:id/hos/order  { hoIds: string[] }
+  if (method === "PUT" && seg.length === 5 && seg[1] === "modules" && seg[3] === "hos" && seg[4] === "order") {
+    const m = findModule(state, decodeURIComponent(seg[2]));
+    if (!m) return json(res, 404, { error: "模组不存在" });
+    const ids: string[] = Array.isArray(body.hoIds) ? body.hoIds.map((x: unknown) => String(x)) : [];
+    const ranked = new Map<string, number>(ids.map((id, i) => [id, i] as [string, number]));
+    m.hos.sort((a, b) => (ranked.get(a.id) ?? 999) - (ranked.get(b.id) ?? 999));
+    saveState(state);
+    return json(res, 200, { hos: m.hos });
+  }
+
   // POST /api/modules/:id/pcs
   if (method === "POST" && seg.length === 4 && seg[1] === "modules" && seg[3] === "pcs") {
     const m = findModule(state, decodeURIComponent(seg[2]));
@@ -268,14 +283,31 @@ async function handle(req: any, res: any, url: string) {
     return json(res, 200, { ok: true });
   }
 
-  // PUT /api/modules/:id/pcs/:pcId/card  { name, data(base64), sizeBytes }
+  // PUT /api/modules/:id/pcs/:pcId/card
+  // raw binary body (Content-Type: application/octet-stream, X-File-Name header)
+  // or legacy JSON { name, data(base64) }
   if (method === "PUT" && seg.length === 6 && seg[5] === "card") {
     const { p } = findPc(state, decodeURIComponent(seg[2]), decodeURIComponent(seg[4]));
     if (!p) return json(res, 404, { error: "PC 不存在" });
-    const name = String(body.name || "card.xlsx");
-    const data = String(body.data || "");
-    if (!data) return json(res, 400, { error: "缺少文件内容" });
-    const buf = Buffer.from(data, "base64");
+    let name: string;
+    let buf: Buffer;
+    const raw = String(req.headers["content-type"] || "");
+    if (raw.includes("application/octet-stream")) {
+      const rawBody = await readBody(req);
+      if (!rawBody.length) return json(res, 400, { error: "缺少文件内容" });
+      const hdr = String(req.headers["x-file-name"] || "card.xlsx");
+      try {
+        name = decodeURIComponent(hdr) || "card.xlsx";
+      } catch {
+        name = "card.xlsx";
+      }
+      buf = rawBody;
+    } else {
+      name = String(body.name || "card.xlsx");
+      const data = String(body.data || "");
+      if (!data) return json(res, 400, { error: "缺少文件内容" });
+      buf = Buffer.from(data, "base64");
+    }
     const storedName = p.id + "_" + Date.now() + "_" + path.basename(name).replace(/[^\w.\-\u4e00-\u9fa5]/g, "_");
     fs.writeFileSync(path.join(UPLOAD_DIR, storedName), buf);
     if (p.card) {
