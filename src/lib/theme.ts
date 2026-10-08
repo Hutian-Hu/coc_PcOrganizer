@@ -6,7 +6,7 @@ export type ThemeName = "oat" | "sage" | "mist" | "rose" | "clay";
 
 type VarMap = Record<string, string>;
 
-export const THEMES: Record<ThemeName, { label: string; swatch: [string, string]; vars: VarMap }> = {
+export const THEMES: Record<ThemeName, { label: string; swatch: [string, string]; vars: VarMap; hoColors: [string, string, string, string] }> = {
   oat: {
     label: "燕麦米",
     swatch: ["40 19% 93%", "96 12% 47%"],
@@ -24,6 +24,7 @@ export const THEMES: Record<ThemeName, { label: string; swatch: [string, string]
       "--input": "40 11% 81%",
       "--ring": "96 12% 47%",
     },
+    hoColors: ["96 16% 58%", "205 18% 60%", "350 16% 62%", "36 22% 60%"],
   },
   sage: {
     label: "鼠尾草",
@@ -42,6 +43,7 @@ export const THEMES: Record<ThemeName, { label: string; swatch: [string, string]
       "--input": "90 8% 79%",
       "--ring": "96 18% 40%",
     },
+    hoColors: ["96 20% 42%", "205 16% 52%", "340 12% 58%", "45 20% 52%"],
   },
   mist: {
     label: "雾蓝",
@@ -60,6 +62,7 @@ export const THEMES: Record<ThemeName, { label: string; swatch: [string, string]
       "--input": "210 9% 80%",
       "--ring": "205 20% 52%",
     },
+    hoColors: ["205 24% 55%", "96 16% 52%", "350 14% 60%", "30 16% 58%"],
   },
   rose: {
     label: "藕荷",
@@ -78,6 +81,7 @@ export const THEMES: Record<ThemeName, { label: string; swatch: [string, string]
       "--input": "350 8% 81%",
       "--ring": "350 18% 52%",
     },
+    hoColors: ["350 18% 58%", "96 16% 50%", "205 16% 58%", "40 18% 58%"],
   },
   clay: {
     label: "暖陶",
@@ -96,8 +100,26 @@ export const THEMES: Record<ThemeName, { label: string; swatch: [string, string]
       "--input": "30 10% 80%",
       "--ring": "22 28% 52%",
     },
+    hoColors: ["22 30% 54%", "96 16% 48%", "205 16% 56%", "340 12% 56%"],
   },
 };
+
+export function applyTheme(name: ThemeName) {
+  const t = THEMES[name];
+  if (!t) return;
+  const root = document.documentElement;
+  for (const [k, v] of Object.entries(t.vars)) root.style.setProperty(k, v);
+  t.hoColors.forEach((c, i) => root.style.setProperty(`--ho-${i + 1}`, c));
+  try {
+    localStorage.setItem(THEME_KEY, name);
+  } catch {
+    /* ignore */
+  }
+}
+
+// default HO column colors (before any theme is applied)
+const DEFAULT_HO = ["96 16% 58%", "205 18% 60%", "350 16% 62%", "36 22% 60%"];
+DEFAULT_HO.forEach((c, i) => document.documentElement.style.setProperty(`--ho-${i + 1}`, c));
 
 const THEME_KEY = "coc-web-theme";
 
@@ -109,18 +131,6 @@ export function getTheme(): ThemeName {
     /* ignore */
   }
   return "oat";
-}
-
-export function applyTheme(name: ThemeName) {
-  const t = THEMES[name];
-  if (!t) return;
-  const root = document.documentElement;
-  for (const [k, v] of Object.entries(t.vars)) root.style.setProperty(k, v);
-  try {
-    localStorage.setItem(THEME_KEY, name);
-  } catch {
-    /* ignore */
-  }
 }
 
 // apply saved theme as early as possible

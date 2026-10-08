@@ -122,26 +122,21 @@
     border-color: hsl(40 8% 62%);
   }
 
-  /* 卡背预览表格 */
-  .card-preview-table {
-    @apply w-full text-[13px] border-separate;
-    border-spacing: 0;
+  /* 卡背预览表格（样式来自 xlsx 本身，格线作底） */
+  .card-grid {
+    border-collapse: collapse;
+    table-layout: fixed;
+    background: #ffffff;
   }
-  .card-preview-table td {
-    @apply border-b border-r px-3 py-1.5 whitespace-nowrap max-w-56 overflow-hidden text-ellipsis;
-    border-color: hsl(var(--border) / 0.7);
-  }
-  .card-preview-table tr:first-child td {
-    @apply border-t;
-  }
-  .card-preview-table td:first-child {
-    @apply border-l;
-  }
-  .card-preview-table tr:first-child td {
-    @apply font-medium;
-    background-color: hsl(40 14% 88% / 0.7);
-  }
-  .card-preview-table tbody tr:hover td {
-    background-color: hsl(36 16% 88% / 0.4);
+  .card-grid td {
+    padding: 1px 4px;
+    font-size: 12px;
+    line-height: 1.35;
+    color: #333333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border: 0.5px solid hsl(var(--border) / 0.65);
+    height: 20px;
   }
 }

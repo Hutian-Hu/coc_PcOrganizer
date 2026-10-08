@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import * as XLSX from "xlsx";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -19,8 +18,10 @@ import {
   Eye,
   X,
   GripVertical,
-  ChevronLeft,
+  ChevronDown,
   ChevronRight,
+  ZoomIn,
+  ZoomOut,
   Users,
   Palette,
   FolderOpen,
@@ -46,9 +47,18 @@ import {
   removePc,
   setPhoto,
   setCard,
+  setPcAttrs,
   getCardArrayBuffer,
 } from "@/lib/storage";
 import { THEMES, applyTheme, getTheme, type ThemeName } from "@/lib/theme";
+import {
+  loadBook,
+  buildSheetRender,
+  extractAttrs,
+  type Book,
+  type PcAttr,
+  type SheetRender,
+} from "@/lib/sheet";
 
 const STATUS: Record<Status, string> = {
   planned: "卫星中",
@@ -59,7 +69,6 @@ const STATUS: Record<Status, string> = {
 };
 const ORDER: Status[] = ["planned", "ongoing", "paused", "disbanded", "finished"];
 
-type SheetView = { name: string; rows: unknown[][] };
 type Run = (fn: () => Promise<unknown>, note?: string) => Promise<void>;
 
 function fmtSize(n?: number) {
@@ -75,7 +84,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; kind: "error" | "info" } | null>(null);
   const [viewer, setViewer] = useState<{ src: string; name: string } | null>(null);
-  const [preview, setPreview] = useState<{ pcName: string; sheets: SheetView[] } | null>(null);
+  const [preview, setPreview] = useState<{ pcName: string; book: Book } | null>(null);
   const [crop, setCrop] = useState<{ moduleId: string; pcId: string; file: File } | null>(null);
   const [newName, setNewName] = useState("");
   const [newStatus, setNewStatus] = useState<Status>("planned");
@@ -116,23 +125,39 @@ export default function Home() {
     if (!pc.card) return;
     try {
       const buf = await getCardArrayBuffer(pc.id);
-      const wb = XLSX.read(buf, { type: "array" });
-      const sheets: SheetView[] = wb.SheetNames.map((name) => {
-        const rows = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], {
-          header: 1,
-          defval: "",
-        });
-        return { name, rows: rows.slice(0, 500).map((r) => r.slice(0, 40)) };
-      }).filter((s) => s.rows.length > 0);
-      if (!sheets.length) {
+      const book = await loadBook(buf);
+      if (!book.worksheets.length) {
         say("这个表格是空的", "error");
         return;
       }
-      setPreview({ pcName: pc.name, sheets });
+      setPreview({ pcName: pc.name, book });
     } catch (e) {
       say(`卡背打开失败：${(e as Error).message}`, "error");
     }
   }
+
+  // one-time backfill: read attributes from already-uploaded cards
+  const backfilled = useRef(new Set<string>());
+  useEffect(() => {
+    if (busy) return;
+    (async () => {
+      for (const m of state.modules) {
+        for (const p of m.pcs) {
+          if (!p.card || p.attrs || backfilled.current.has(p.id)) continue;
+          backfilled.current.add(p.id);
+          try {
+            const attrs = await extractAttrs(await getCardArrayBuffer(p.id));
+            if (attrs) {
+              await setPcAttrs(m.id, p.id, attrs);
+              await refresh();
+            }
+          } catch {
+            /* 读取失败则跳过 */
+          }
+        }
+      }
+    })();
+  }, [state, busy, refresh]);
 
   const counts: Record<Status, number> = { planned: 0, ongoing: 0, paused: 0, disbanded: 0, finished: 0 };
   state.modules.forEach((m) => counts[m.status]++);
@@ -237,7 +262,7 @@ export default function Home() {
             </div>
           )}
           {visibleModules.map((m) => (
-            <ModuleRow key={m.id} module={m} busy={busy} run={run} />
+            <ModuleRow key={m.id} module={m} hos={state.hos} busy={busy} run={run} onPreview={openPreview} />
           ))}
         </section>
 
@@ -340,10 +365,23 @@ function PreviewModal({
   preview,
   onClose,
 }: {
-  preview: { pcName: string; sheets: SheetView[] };
+  preview: { pcName: string; book: Book };
   onClose: () => void;
 }) {
+  const sheets = useMemo(
+    () => preview.book.worksheets.filter((w) => !w.state || w.state === "visible"),
+    [preview.book]
+  );
   const [tab, setTab] = useState(0);
+  const [zoom, setZoom] = useState(1);
+  const [building, setBuilding] = useState(true);
+  const cache = useRef(new Map<number, SheetRender>());
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const fitted = useRef(new Set<number>());
+
+  const safeTab = Math.min(tab, Math.max(0, sheets.length - 1));
+  const sheet = sheets[safeTab];
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -352,36 +390,93 @@ function PreviewModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const sheet = preview.sheets[Math.min(tab, preview.sheets.length - 1)];
+  useEffect(() => {
+    if (!sheet) return;
+    const cached = cache.current.get(safeTab);
+    if (cached) {
+      setBuilding(false);
+      return;
+    }
+    setBuilding(true);
+    const t = window.setTimeout(() => {
+      cache.current.set(safeTab, buildSheetRender(sheet));
+      setBuilding(false);
+      // auto fit-to-width the first time a sheet is rendered
+      if (!fitted.current.has(safeTab)) {
+        fitted.current.add(safeTab);
+        const el = scrollRef.current;
+        const v = cache.current.get(safeTab);
+        if (el && v) {
+          const natural = v.cols.reduce((a, b) => a + b, 0);
+          if (natural > el.clientWidth - 48) {
+            setZoom(Math.min(2.2, Math.max(0.3, (el.clientWidth - 48) / natural)));
+          }
+        }
+      }
+    }, 30);
+    return () => window.clearTimeout(t);
+  }, [sheet, safeTab]);
+
+  const view = cache.current.get(safeTab);
+  const naturalWidth = view ? view.cols.reduce((a, b) => a + b, 0) : 0;
+
+  function fitWidth() {
+    const el = scrollRef.current;
+    if (!el || !naturalWidth) return;
+    setZoom(Math.min(2.2, Math.max(0.3, (el.clientWidth - 48) / naturalWidth)));
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="bg-card border rounded-2xl w-full max-w-3xl max-h-[86vh] flex flex-col overflow-hidden shadow-2xl"
+        className="bg-card border rounded-2xl w-full max-w-5xl max-h-[88vh] flex flex-col overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2.5 px-5 py-3.5 border-b bg-secondary/40">
-          <span className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-primary/15 text-primary">
+        <div className="flex items-center gap-2.5 px-5 py-3 border-b bg-secondary/40">
+          <span className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-primary/15 text-primary shrink-0">
             <FileSpreadsheet className="h-4 w-4" />
           </span>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium truncate">{preview.pcName} 的卡背</div>
-            <div className="text-xs text-muted-foreground">共 {preview.sheets.length} 个工作表</div>
+            <div className="text-xs text-muted-foreground">共 {sheets.length} 个工作表</div>
           </div>
-          <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="关闭" onClick={onClose}>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="缩小" onClick={() => setZoom((z) => Math.max(0.3, Math.round((z - 0.1) * 10) / 10))}>
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+            <input
+              type="range"
+              min={0.3}
+              max={2.2}
+              step={0.05}
+              value={zoom}
+              aria-label="缩放"
+              className="w-24"
+              onChange={(e) => setZoom(Number(e.target.value))}
+            />
+            <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="放大" onClick={() => setZoom((z) => Math.min(2.2, Math.round((z + 0.1) * 10) / 10))}>
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+            <span className="text-xs text-muted-foreground w-11 text-right tabular-nums">{Math.round(zoom * 100)}%</span>
+            <Button size="sm" variant="secondary" className="h-8 px-2 text-xs" onClick={fitWidth}>
+              适应宽度
+            </Button>
+          </div>
+          <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="关闭" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
-        {preview.sheets.length > 1 && (
-          <div className="flex gap-1.5 px-5 py-2.5 border-b flex-wrap">
-            {preview.sheets.map((s, i) => (
+        {sheets.length > 1 && (
+          <div className="flex gap-1.5 px-5 py-2 border-b flex-wrap max-h-24 overflow-auto">
+            {sheets.map((s, i) => (
               <button
                 key={s.name || i}
                 type="button"
                 className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                  i === tab
+                  i === safeTab
                     ? "bg-primary/15 text-primary font-medium"
                     : "text-muted-foreground hover:bg-secondary"
                 }`}
@@ -392,18 +487,52 @@ function PreviewModal({
             ))}
           </div>
         )}
-        <div className="overflow-auto flex-1 p-4">
-          <table className="card-preview-table">
-            <tbody>
-              {sheet.rows.map((row, ri) => (
-                <tr key={ri}>
-                  {row.map((cell, ci) => (
-                    <td key={ci}>{String(cell ?? "")}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div ref={scrollRef} className="overflow-auto flex-1 p-4 bg-[hsl(var(--secondary)/0.35)]">
+          {building || !view ? (
+            <div className="text-sm text-muted-foreground py-10 text-center">正在渲染表格…</div>
+          ) : (
+            <>
+              <div
+                style={{
+                  transform: `scale(${zoom})`,
+                  transformOrigin: "top left",
+                  width: naturalWidth ? naturalWidth * zoom : undefined,
+                }}
+              >
+                <table className="card-grid">
+                  <colgroup>
+                    {view.cols.map((w, i) => (
+                      <col key={i} style={{ width: w }} />
+                    ))}
+                  </colgroup>
+                  <tbody>
+                    {view.rows.map((row, ri) => (
+                      <tr key={ri} style={row.h ? { height: row.h } : undefined}>
+                        {row.cells.map((cell, ci) =>
+                          cell === null ? null : (
+                            <td
+                              key={ci}
+                              style={cell.style}
+                              colSpan={cell.colspan}
+                              rowSpan={cell.rowspan}
+                              title={cell.v.length > 12 ? cell.v : undefined}
+                            >
+                              {cell.v}
+                            </td>
+                          )
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {view.truncated && (
+                <div className="text-xs text-muted-foreground mt-2">
+                  表格过大，仅显示前 {view.cols.length} 列 / 前 {view.rows.length} 行
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -543,15 +672,7 @@ function HoBoard({
   onCrop: (moduleId: string, pcId: string, file: File) => void;
 }) {
   const dragHo = useRef<string | null>(null);
-
-  function movePc(m: Module, pc: Pc, dir: -1 | 1) {
-    const cols: (string | null)[] = [...hos.map((h) => h.id), null];
-    const idx = cols.indexOf(pc.hoId ?? null);
-    const next = cols[idx + dir];
-    if (idx === -1 || next === undefined) return;
-    const label = next === null ? "未分配" : (hos.find((h) => h.id === next)?.name ?? "");
-    run(() => setPcHo(m.id, pc.id, next), `已移动到「${label}」`);
-  }
+  const dragPc = useRef<{ moduleId: string; pcId: string } | null>(null);
 
   function onDropHo(targetId: string) {
     const srcId = dragHo.current;
@@ -572,15 +693,14 @@ function HoBoard({
           key={ho.id}
           ho={ho}
           colIndex={i}
-          colCount={hos.length}
           modules={modules}
           busy={busy}
           run={run}
           onViewPhoto={onViewPhoto}
           onPreview={onPreview}
           onCrop={onCrop}
-          onMovePc={movePc}
           dragHo={dragHo}
+          dragPc={dragPc}
           onDropHo={onDropHo}
         />
       ))}
@@ -588,15 +708,14 @@ function HoBoard({
         key="unassigned"
         ho={null}
         colIndex={hos.length}
-        colCount={hos.length}
         modules={modules}
         busy={busy}
         run={run}
         onViewPhoto={onViewPhoto}
         onPreview={onPreview}
         onCrop={onCrop}
-        onMovePc={movePc}
         dragHo={dragHo}
+        dragPc={dragPc}
         onDropHo={onDropHo}
       />
       <div className="shrink-0 w-40">
@@ -653,33 +772,33 @@ function AddHoButton({ busy, run, hos }: { busy: boolean; run: Run; hos: Ho[] })
 function HoColumn({
   ho,
   colIndex,
-  colCount,
   modules,
   busy,
   run,
   onViewPhoto,
   onPreview,
   onCrop,
-  onMovePc,
   dragHo,
+  dragPc,
   onDropHo,
 }: {
   ho: Ho | null;
   colIndex: number;
-  colCount: number;
   modules: Module[];
   busy: boolean;
   run: Run;
   onViewPhoto: (src: string, name: string) => void;
   onPreview: (pc: Pc) => void;
   onCrop: (moduleId: string, pcId: string, file: File) => void;
-  onMovePc: (m: Module, pc: Pc, dir: -1 | 1) => void;
   dragHo: React.MutableRefObject<string | null>;
+  dragPc: React.MutableRefObject<{ moduleId: string; pcId: string } | null>;
   onDropHo: (targetId: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ho?.name || "");
   const [dragOver, setDragOver] = useState(false);
+
+  const hoVar = ho ? `var(--ho-${(colIndex % 4) + 1})` : "var(--border)";
 
   const groups = modules
     .map((m) => ({
@@ -694,9 +813,11 @@ function HoColumn({
       className={`shrink-0 w-48 flex flex-col gap-2 rounded-xl border p-2 transition-colors ${
         dragOver ? "border-primary/60 bg-primary/5" : "bg-secondary/40 border-border/70"
       }`}
+      style={{ borderTop: `3px solid hsl(${hoVar})` }}
       onDragOver={(e) => {
-        if (ho && dragHo.current) {
+        if (dragHo.current || dragPc.current) {
           e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
           setDragOver(true);
         }
       }}
@@ -704,12 +825,32 @@ function HoColumn({
       onDrop={(e) => {
         e.preventDefault();
         setDragOver(false);
+        const pcDrag = dragPc.current;
+        dragPc.current = null;
+        if (pcDrag) {
+          const target = ho ? ho.id : null;
+          const cur = modules
+            .flatMap((m) => m.pcs)
+            .find((p) => p.id === pcDrag.pcId)?.hoId ?? null;
+          if (cur !== target) {
+            const label = ho ? ho.name : "未分配";
+            void run(() => setPcHo(pcDrag.moduleId, pcDrag.pcId, target), `已移动到「${label}」`);
+          }
+          return;
+        }
         if (ho) onDropHo(ho.id);
       }}
     >
-      <div className="flex items-center gap-1 min-h-7">
+      <div
+        className="flex items-center gap-1 min-h-7 rounded-lg px-1"
+        style={ho ? { background: `hsl(${hoVar} / 0.14)` } : undefined}
+      >
         {ho ? (
           <>
+            <span
+              className="h-2 w-2 rounded-full shrink-0"
+              style={{ background: `hsl(${hoVar})` }}
+            />
             <span
               className="text-muted-foreground/50 cursor-grab shrink-0"
               title="拖动排序"
@@ -771,14 +912,14 @@ function HoColumn({
       <div className="flex flex-col gap-3">
         {groups.length === 0 && (
           <div className="text-[11px] text-muted-foreground/70 text-center py-3">
-            {ho ? "空" : "在下方模组管理中添加 PC"}
+            {ho ? "把 PC 拖到这里" : "在下方模组管理中添加 PC"}
           </div>
         )}
         {groups.map(({ module: m, pcs }) => (
           <div key={m.id} className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5 px-0.5">
               <span className={`h-1.5 w-1.5 rounded-full shrink-0 dot-${m.status}`} />
-              <span className="text-[11px] font-medium text-muted-foreground truncate">{m.name}</span>
+              <span className="h-px flex-1 bg-border/70" />
             </div>
             {pcs.map((p) => (
               <PcEntry
@@ -790,10 +931,7 @@ function HoColumn({
                 onViewPhoto={onViewPhoto}
                 onPreview={onPreview}
                 onCrop={onCrop}
-                onMoveLeft={() => onMovePc(m, p, -1)}
-                onMoveRight={() => onMovePc(m, p, 1)}
-                canLeft={colIndex > 0}
-                canRight={colIndex < colCount}
+                dragPc={dragPc}
               />
             ))}
           </div>
@@ -805,13 +943,34 @@ function HoColumn({
 
 /* ================= module management rows ================= */
 
-function ModuleRow({ module: m, busy, run }: { module: Module; busy: boolean; run: Run }) {
+function ModuleRow({
+  module: m,
+  hos,
+  busy,
+  run,
+  onPreview,
+}: {
+  module: Module;
+  hos: Ho[];
+  busy: boolean;
+  run: Run;
+  onPreview: (pc: Pc) => void;
+}) {
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(m.name);
   const [pcName, setPcName] = useState("");
+  const [open, setOpen] = useState(false);
 
   return (
     <div className="group bg-card border rounded-xl px-3 py-2 flex items-center gap-2 flex-wrap shadow-sm transition-colors hover:border-primary/40">
+      <button
+        type="button"
+        className="shrink-0 text-muted-foreground/60 hover:text-foreground transition-colors"
+        aria-label={open ? "收起 PC 详情" : "展开 PC 详情"}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+      </button>
       <span className={`h-2 w-2 rounded-full shrink-0 dot-${m.status}`} />
       {renaming ? (
         <form
@@ -897,6 +1056,95 @@ function ModuleRow({ module: m, busy, run }: { module: Module; busy: boolean; ru
       >
         <Trash2 className="h-4 w-4" />
       </Button>
+
+      {open && (
+        <div className="w-full mt-1 flex flex-col gap-1.5">
+          {m.pcs.length === 0 && <div className="text-xs text-muted-foreground py-1">暂无 PC</div>}
+          {m.pcs.map((p) => (
+            <PcDetailItem key={p.id} module={m} pc={p} hos={hos} onPreview={onPreview} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================= PC detail (module management) ================= */
+
+function PcDetailItem({
+  pc: p,
+  hos,
+  onPreview,
+}: {
+  module: Module;
+  pc: Pc;
+  hos: Ho[];
+  onPreview: (pc: Pc) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const hoName = hos.find((h) => h.id === p.hoId)?.name ?? "未分配";
+
+  return (
+    <div className="rounded-lg border bg-background/50 overflow-hidden">
+      <button
+        type="button"
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-secondary/50 transition-colors"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+        {p.photo ? (
+          <img src={p.photo} alt={p.name} className="h-7 w-7 rounded-md object-cover border shrink-0" />
+        ) : (
+          <span className="h-7 w-7 rounded-md border bg-secondary/60 flex items-center justify-center shrink-0">
+            <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
+          </span>
+        )}
+        <span className="text-sm font-medium truncate">{p.name}</span>
+        <span className="text-[10px] text-muted-foreground/80 shrink-0">{hoName}</span>
+        <span className="text-[10px] text-muted-foreground/70 truncate ml-auto shrink-0">
+          {p.card ? p.card.name : "无卡背"}
+        </span>
+      </button>
+      {open && (
+        <div className="px-3 pb-2.5 pt-1 flex flex-col gap-2">
+          {p.attrs ? (
+            <AttrGrid attrs={p.attrs} />
+          ) : (
+            <div className="text-xs text-muted-foreground">
+              {p.card ? "未能从卡背中读取到属性" : "上传卡背后自动读取九项属性"}
+            </div>
+          )}
+          {p.card && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{p.card.name}</span>
+              {p.card.sizeBytes > 0 && <span className="shrink-0">{fmtSize(p.card.sizeBytes)}</span>}
+              <Button size="sm" variant="secondary" className="h-7 px-2 text-xs ml-auto shrink-0" onClick={() => onPreview(p)}>
+                <Eye className="h-3.5 w-3.5 mr-1" />
+                查看卡背
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AttrGrid({ attrs }: { attrs: PcAttr[] }) {
+  return (
+    <div className="grid grid-cols-3 md:grid-cols-5 xl:grid-cols-9 gap-1.5">
+      {attrs.map((a) => (
+        <div key={a.label} className="rounded-lg border bg-card px-1 py-1 text-center min-w-0">
+          <div className="text-[10px] text-muted-foreground truncate" title={a.label}>
+            {a.label}
+          </div>
+          <div className="text-lg font-semibold leading-tight tabular-nums">{a.value}</div>
+          <div className="text-[9px] text-muted-foreground/80 tabular-nums">
+            {a.half} / {a.fifth}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -911,10 +1159,7 @@ function PcEntry({
   onViewPhoto,
   onPreview,
   onCrop,
-  onMoveLeft,
-  onMoveRight,
-  canLeft,
-  canRight,
+  dragPc,
 }: {
   module: Module;
   pc: Pc;
@@ -923,19 +1168,25 @@ function PcEntry({
   onViewPhoto: (src: string, name: string) => void;
   onPreview: (pc: Pc) => void;
   onCrop: (moduleId: string, pcId: string, file: File) => void;
-  onMoveLeft: () => void;
-  onMoveRight: () => void;
-  canLeft: boolean;
-  canRight: boolean;
+  dragPc: React.MutableRefObject<{ moduleId: string; pcId: string } | null>;
 }) {
   const photoRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(p.name);
+  const [dragging, setDragging] = useState(false);
 
   async function onCard(file: File) {
     try {
-      await run(() => setCard(m.id, p.id, file), `已关联卡背「${file.name}」`);
+      await run(async () => {
+        await setCard(m.id, p.id, file);
+        try {
+          const attrs = await extractAttrs(await file.arrayBuffer());
+          if (attrs) await setPcAttrs(m.id, p.id, attrs);
+        } catch {
+          /* 属性读取失败不阻塞上传 */
+        }
+      }, `已关联卡背「${file.name}」`);
     } catch (e) {
       alert((e as Error).message);
     }
@@ -957,7 +1208,22 @@ function PcEntry({
   }
 
   return (
-    <div className="group/pc bg-card border rounded-xl p-2 flex flex-col gap-1.5 transition-colors hover:border-primary/40">
+    <div
+      className={`group/pc bg-card border rounded-xl p-2 flex flex-col gap-1.5 transition-all hover:border-primary/40 ${
+        dragging ? "opacity-40 scale-95 rotate-1" : "cursor-grab active:cursor-grabbing"
+      }`}
+      draggable
+      onDragStart={(e) => {
+        dragPc.current = { moduleId: m.id, pcId: p.id };
+        e.dataTransfer.setData("text/plain", p.id);
+        e.dataTransfer.effectAllowed = "move";
+        setDragging(true);
+      }}
+      onDragEnd={() => {
+        dragPc.current = null;
+        setDragging(false);
+      }}
+    >
       <div className="flex items-center gap-2">
         {p.photo ? (
           <button
@@ -1023,6 +1289,11 @@ function PcEntry({
               {p.name}
             </button>
           )}
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0 mt-0.5">
+            <span className={`h-1.5 w-1.5 rounded-full shrink-0 dot-${m.status}`} />
+            <span className="truncate">{m.name}</span>
+            <span className="text-muted-foreground/70 shrink-0">· {STATUS[m.status]}</span>
+          </div>
           {p.card && (
             <button
               type="button"
@@ -1041,26 +1312,6 @@ function PcEntry({
       </div>
 
       <div className="flex items-center gap-0.5 opacity-0 group-hover/pc:opacity-100 focus-within:opacity-100 transition-opacity">
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-6 w-6"
-          aria-label="左移"
-          disabled={busy || !canLeft}
-          onClick={onMoveLeft}
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-6 w-6"
-          aria-label="右移"
-          disabled={busy || !canRight}
-          onClick={onMoveRight}
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-        </Button>
         {!p.photo && (
           <Button
             size="icon"

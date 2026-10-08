@@ -12,7 +12,14 @@ const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 type Status = "planned" | "ongoing" | "paused" | "disbanded" | "finished";
 type CardMeta = { name: string; sizeBytes: number; storedName: string };
 type Ho = { id: string; name: string };
-type Pc = { id: string; name: string; photo: string | null; card: CardMeta | null; hoId: string | null };
+type Pc = {
+  id: string;
+  name: string;
+  photo: string | null;
+  card: CardMeta | null;
+  hoId: string | null;
+  attrs?: { label: string; value: number; half: number; fifth: number }[] | null;
+};
 type Module = { id: string; name: string; status: Status; pcs: Pc[] };
 type State = { hos: Ho[]; modules: Module[]; updatedAt: string };
 
@@ -92,6 +99,7 @@ function publicState(s: State) {
         name: p.name,
         photo: p.photo,
         hoId: p.hoId,
+        attrs: p.attrs ?? null,
         card: p.card ? { name: p.card.name, sizeBytes: p.card.sizeBytes } : null,
       })),
     })),
@@ -262,6 +270,18 @@ async function handle(req: any, res: any, url: string) {
     if (body.hoId === null) p.hoId = null;
     else if (typeof body.hoId === "string" && state.hos.some((h) => h.id === body.hoId)) {
       p.hoId = body.hoId;
+    }
+    if (body.attrs !== undefined) {
+      if (body.attrs === null) {
+        p.attrs = null;
+      } else if (Array.isArray(body.attrs)) {
+        p.attrs = body.attrs.slice(0, 12).map((a: Record<string, unknown>) => ({
+          label: String(a.label ?? "").slice(0, 40),
+          value: Math.min(9999, Math.max(0, Number(a.value) || 0)),
+          half: Math.min(9999, Math.max(0, Number(a.half) || 0)),
+          fifth: Math.min(9999, Math.max(0, Number(a.fifth) || 0)),
+        }));
+      }
     }
     saveState(state);
     return json(res, 200, { pc: p });

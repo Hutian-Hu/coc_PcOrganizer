@@ -8,7 +8,8 @@
 export type Status = "planned" | "ongoing" | "paused" | "disbanded" | "finished";
 export type CardMeta = { name: string; sizeBytes: number; data?: string };
 export type Ho = { id: string; name: string };
-export type Pc = { id: string; name: string; photo: string | null; card: CardMeta | null; hoId: string | null };
+export type PcAttr = { label: string; value: number; half: number; fifth: number };
+export type Pc = { id: string; name: string; photo: string | null; card: CardMeta | null; hoId: string | null; attrs?: PcAttr[] | null };
 export type Module = { id: string; name: string; status: Status; pcs: Pc[] };
 export type State = { hos: Ho[]; modules: Module[]; updatedAt: string };
 
@@ -232,6 +233,22 @@ export async function setPcHo(moduleId: string, pcId: string, hoId: string | nul
   const p = findModule(s, moduleId)?.pcs.find((x) => x.id === pcId);
   if (p && (hoId === null || s.hos.some((h) => h.id === hoId))) {
     p.hoId = hoId;
+    saveLocal(s);
+  }
+}
+
+export async function setPcAttrs(moduleId: string, pcId: string, attrs: PcAttr[] | null): Promise<void> {
+  if ((await detectMode()) === "server") {
+    await serverReq(`/api/modules/${moduleId}/pcs/${pcId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ attrs }),
+    });
+    return;
+  }
+  const s = loadLocal();
+  const p = findModule(s, moduleId)?.pcs.find((x) => x.id === pcId);
+  if (p) {
+    p.attrs = attrs;
     saveLocal(s);
   }
 }
