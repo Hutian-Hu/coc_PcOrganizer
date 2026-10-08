@@ -25,6 +25,9 @@ import {
   Users,
   Palette,
   FolderOpen,
+  Sun,
+  Moon,
+  ImageDown,
 } from "lucide-react";
 import {
   type Status,
@@ -50,7 +53,8 @@ import {
   setPcAttrs,
   getCardArrayBuffer,
 } from "@/lib/storage";
-import { THEMES, applyTheme, getTheme, type ThemeName } from "@/lib/theme";
+import { THEMES, applyTheme, getTheme, getMode, setMode, type ThemeName } from "@/lib/theme";
+import { exportBoardImage } from "@/lib/exportImage";
 import {
   loadBook,
   buildSheetRender,
@@ -88,6 +92,8 @@ export default function Home() {
   const [crop, setCrop] = useState<{ moduleId: string; pcId: string; file: File } | null>(null);
   const [newName, setNewName] = useState("");
   const [newStatus, setNewStatus] = useState<Status>("planned");
+  const [dark, setDark] = useState(getMode() === "dark");
+  const [exporting, setExporting] = useState(false);
   const msgTimer = useRef<number | null>(null);
 
   const say = useCallback((text: string, kind: "error" | "info" = "info") => {
@@ -118,6 +124,19 @@ export default function Home() {
       say((e as Error).message, "error");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onExportImage() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const ok = await exportBoardImage(state);
+      say(ok ? "已导出长图（只含有内容的栏目）" : "看板还是空的，先添加一些 PC 吧");
+    } catch (e) {
+      say(`导出失败：${(e as Error).message}`, "error");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -171,10 +190,35 @@ export default function Home() {
             <Users className="h-5 w-5 text-primary" />
             TRPG PC整理工具
           </h1>
-          <div className="ml-auto flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-muted-foreground hidden sm:inline">
               {ORDER.map((s) => `${STATUS[s]} ${counts[s]}`).join(" · ")}
             </span>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              aria-label={dark ? "切换为浅色模式" : "切换为深色模式"}
+              title={dark ? "切换为浅色模式" : "切换为深色模式"}
+              onClick={() => {
+                const next = !dark;
+                setDark(next);
+                setMode(next ? "dark" : "light");
+              }}
+            >
+              {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              aria-label="导出长图"
+              title="导出有内容的 HO 栏目为长图"
+              disabled={exporting}
+              onClick={() => void onExportImage()}
+            >
+              <ImageDown className="h-4 w-4" />
+            </Button>
             <ThemePicker />
             {busy && <span className="text-xs text-muted-foreground">保存中…</span>}
           </div>
@@ -470,12 +514,12 @@ function PreviewModal({
           </Button>
         </div>
         {sheets.length > 1 && (
-          <div className="flex gap-1.5 px-5 py-2 border-b flex-wrap max-h-24 overflow-auto">
+          <div className="flex gap-1.5 px-4 py-2 border-b flex-wrap max-h-36 overflow-y-auto">
             {sheets.map((s, i) => (
               <button
                 key={s.name || i}
                 type="button"
-                className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs transition-colors ${
                   i === safeTab
                     ? "bg-primary/15 text-primary font-medium"
                     : "text-muted-foreground hover:bg-secondary"
