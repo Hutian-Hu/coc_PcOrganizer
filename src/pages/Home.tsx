@@ -794,6 +794,23 @@ function HoBoard({
     else pcRefs.current.delete(pcId);
   }, []);
 
+  // 桌面端原生 HTML5 拖放（与指针拖拽并存，触摸设备无效故不受影响）
+  const nativePending = useRef<DragPayload | null>(null);
+  const onNativeDragStart = useCallback((payload: DragPayload | null) => {
+    nativePending.current = payload;
+  }, []);
+  const onNativeDrop = useCallback(
+    (e: React.DragEvent) => {
+      const payload = nativePending.current;
+      nativePending.current = null;
+      if (!payload) return;
+      e.preventDefault();
+      commitDrag(payload, hitTest(e.clientX, e.clientY, payload.kind));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [modules, hos]
+  );
+
   function hitTest(
     x: number,
     y: number,
@@ -911,6 +928,8 @@ function HoBoard({
             registerCol={registerCol}
             registerPc={registerPc}
             onDragStart={beginDrag}
+            onNativeDragStart={onNativeDragStart}
+            onNativeDrop={onNativeDrop}
           />
         ))}
         <HoColumn
@@ -928,6 +947,8 @@ function HoBoard({
           registerCol={registerCol}
           registerPc={registerPc}
           onDragStart={beginDrag}
+          onNativeDragStart={onNativeDragStart}
+          onNativeDrop={onNativeDrop}
         />
         <div className="shrink-0 w-40">
           <AddHoButton busy={busy} run={run} hos={hos} />
@@ -1003,6 +1024,8 @@ function HoColumn({
   registerCol,
   registerPc,
   onDragStart,
+  onNativeDragStart,
+  onNativeDrop,
 }: {
   ho: Ho | null;
   colIndex: number;
@@ -1017,9 +1040,12 @@ function HoColumn({
   registerCol: (key: string, el: HTMLElement | null) => void;
   registerPc: (pcId: string, el: HTMLElement | null) => void;
   onDragStart: (payload: DragPayload, e: React.PointerEvent) => void;
+  onNativeDragStart: (payload: DragPayload | null) => void;
+  onNativeDrop: (e: React.DragEvent) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ho?.name || "");
+  const [nativeOver, setNativeOver] = useState(false);
 
   const hoVar = ho ? `var(--ho-${(colIndex % 4) + 1})` : "var(--border)";
   const colHoId = ho ? ho.id : null;
@@ -1032,7 +1058,7 @@ function HoColumn({
     .filter((g) => g.pcs.length > 0);
   const total = groups.reduce((n, g) => n + g.pcs.length, 0);
 
-  const dragOver = !!drag?.active && drag.overHo !== undefined && drag.overHo === colHoId;
+  const dragOver = nativeOver || (!!drag?.active && drag.overHo !== undefined && drag.overHo === colHoId);
   const pcDrag = drag?.active && drag.kind === "pc" ? drag : null;
 
   return (
@@ -1042,6 +1068,16 @@ function HoColumn({
         dragOver ? "border-primary/60 bg-primary/5" : "bg-secondary/40 border-border/70"
       }`}
       style={{ borderTop: `3px solid hsl(${hoVar})` }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setNativeOver(true);
+      }}
+      onDragLeave={() => setNativeOver(false)}
+      onDrop={(e) => {
+        setNativeOver(false);
+        onNativeDrop(e);
+      }}
     >
       <div
         className="flex items-center gap-1 min-h-7 rounded-lg px-1"
@@ -1141,6 +1177,7 @@ function HoColumn({
                   onCrop={onCrop}
                   pcRef={registerPc}
                   onDragStart={onDragStart}
+                  onNativeDragStart={onNativeDragStart}
                   isDragging={!!pcDrag && pcDrag.pcId === p.id}
                 />
               </div>
@@ -1375,6 +1412,7 @@ function PcEntry({
   onCrop,
   pcRef,
   onDragStart,
+  onNativeDragStart,
   isDragging,
 }: {
   module: Module;
@@ -1386,12 +1424,14 @@ function PcEntry({
   onCrop: (moduleId: string, pcId: string, file: File) => void;
   pcRef: (pcId: string, el: HTMLElement | null) => void;
   onDragStart: (payload: DragPayload, e: React.PointerEvent) => void;
+  onNativeDragStart: (payload: DragPayload | null) => void;
   isDragging: boolean;
 }) {
   const photoRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(p.name);
+  const [coarse] = useState(() => window.matchMedia("(pointer: coarse)").matches);
 
   async function onCard(file: File) {
     try {
@@ -1432,11 +1472,19 @@ function PcEntry({
       }`}
       onPointerDown={(e) => {
         // 整卡可拖（桌面鼠标习惯）；输入框上除外，手机端仍建议用手柄（整卡滑动留给横向滚动）
-        if (window.matchMedia("(pointer: coarse)").matches) return;
+        if (coarse) return;
         const t = e.target as HTMLElement;
         if (t.closest("input, textarea, select, [contenteditable='true']")) return;
         onDragStart({ kind: "pc", moduleId: m.id, pcId: p.id, label: p.name }, e);
       }}
+      draggable={!coarse}
+      onDragStart={(e) => {
+        const payload: DragPayload = { kind: "pc", moduleId: m.id, pcId: p.id, label: p.name };
+        onNativeDragStart(payload);
+        e.dataTransfer.setData("text/plain", p.id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      onDragEnd={() => onNativeDragStart(null)}
     >
       <div className="flex items-center gap-2">
         {p.photo ? (
