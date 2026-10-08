@@ -18,6 +18,15 @@ export type Book = ExcelJS.Workbook;
 const MAX_COLS = 120;
 const MAX_ROWS = 220;
 
+// 估算文本渲染宽度：CJK 全角 ≈ fontSize，ASCII ≈ 0.56 fontSize
+function textWidthPx(s: string, fontSize: number): number {
+  let w = 0;
+  for (const ch of s) {
+    w += /[\u2e80-\u9fff\u3000-\u303f\uf900-\ufaff\uff00-\uffef]/.test(ch) ? fontSize : fontSize * 0.56;
+  }
+  return w;
+}
+
 export async function loadBook(buf: ArrayBuffer): Promise<Book> {
   const ExcelJSMod = (await import("exceljs")).default;
   const wb = new ExcelJSMod.Workbook();
@@ -162,6 +171,7 @@ export function buildSheetRender(ws: ExcelJS.Worksheet): SheetRender {
   }
 
   const rows: RowView[] = [];
+  const contentW: number[] = new Array(lastCol).fill(0); // 每列内容实际所需宽度
   for (let r = 1; r <= lastRow; r++) {
     const row = ws.getRow(r);
     const h = typeof row.height === "number" && row.height > 0 ? Math.round((row.height * 4) / 3) : undefined;
@@ -176,6 +186,14 @@ export function buildSheetRender(ws: ExcelJS.Worksheet): SheetRender {
       const view: CellView = { v: cellText(cell) };
       const st = cellStyle(cell);
       if (st) view.style = st;
+      if (view.v) {
+        const fs = typeof st?.fontSize === "number" ? st.fontSize : 12;
+        const cs = span ? span.cs : 1;
+        const per = (textWidthPx(view.v, fs) + 14) / cs;
+        for (let k = 0; k < cs && c - 1 + k < lastCol; k++) {
+          if (per > contentW[c - 1 + k]) contentW[c - 1 + k] = per;
+        }
+      }
       if (span) {
         view.colspan = span.cs;
         view.rowspan = span.rs;
@@ -183,6 +201,27 @@ export function buildSheetRender(ws: ExcelJS.Worksheet): SheetRender {
       cells.push(view);
     }
     rows.push({ h, cells });
+  }
+
+  // 列宽按内容收缩：空列/内容短的列不再占用文件里声明的超大宽度，
+  // 避免整张表被空白列拉宽（超出部分由单元格省略号折叠）
+  for (let c = 0; c < lastCol; c++) {
+    const want = contentW[c];
+    cols[c] = want <= 0 ? Math.min(cols[c], 12) : Math.max(26, Math.min(cols[c], Math.max(want, 40)));
+  }
+
+  // 裁掉尾部连续空列（文本层面，留 1 列余量），空白不再把整张表撑宽
+  let lastContent = -1;
+  for (const row of rows) {
+    for (let i = 0; i < row.cells.length; i++) {
+      const cell = row.cells[i];
+      if (cell && cell.v.trim()) lastContent = Math.max(lastContent, i);
+    }
+  }
+  const keep = Math.min(lastCol, Math.max(lastContent + 2, 1));
+  if (keep < lastCol) {
+    cols.length = keep;
+    for (const row of rows) row.cells.length = keep;
   }
 
   const truncated = (ws.rowCount || 0) > lastRow || (ws.columnCount || 0) > lastCol;
@@ -240,6 +279,28 @@ export function extractAttrsFromBook(wb: Book): PcAttr[] | null {
       });
     });
     if (found.size > best.length) best = [...found.values()];
+  }
+  // 兜底：部分卡片的幸运没有「幸运/Luck」标签，数值放在 N10:O11 区域
+  if (!best.some((a) => /luck|幸运/i.test(a.label))) {
+    for (const ws of wb.worksheets) {
+      if ((ws.state as string | undefined) && ws.state !== "visible") continue;
+      let luck: number | null = null;
+      for (let r = 10; r <= 11 && luck === null; r++) {
+        for (let c = 14; c <= 15 && luck === null; c++) {
+          const v = ws.getRow(r).getCell(c).value as unknown;
+          let n: number | null = null;
+          if (typeof v === "number") n = v;
+          else if (v && typeof v === "object" && typeof (v as { result?: unknown }).result === "number") {
+            n = (v as { result: number }).result;
+          }
+          if (n !== null && Number.isFinite(n)) luck = n;
+        }
+      }
+      if (luck !== null) {
+        best.push({ label: "幸运", value: luck, half: Math.floor(luck / 2), fifth: Math.floor(luck / 5) });
+        break;
+      }
+    }
   }
   best.sort((a, b) => matchKey(a.label) - matchKey(b.label));
   return best.length >= 5 ? best : null;

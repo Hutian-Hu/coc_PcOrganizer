@@ -346,7 +346,7 @@ export async function getCardArrayBuffer(pcId: string): Promise<ArrayBuffer> {
       const fromIdb = await idbGetCard(pcId);
       if (fromIdb) {
         if (p.card.sizeBytes && fromIdb.byteLength !== p.card.sizeBytes) {
-          throw new Error("卡背数据已损坏（大小校验失败），请重新上传");
+          throw new Error("角色卡数据已损坏（大小校验失败），请重新上传");
         }
         return fromIdb;
       }
@@ -360,7 +360,7 @@ export async function getCardArrayBuffer(pcId: string): Promise<ArrayBuffer> {
           .then(() => migrateLegacyCards(s))
           .catch(() => {});
         if (p.card.sizeBytes && bytes.length !== p.card.sizeBytes) {
-          throw new Error("卡背数据已损坏（大小校验失败），请重新上传");
+          throw new Error("角色卡数据已损坏（大小校验失败），请重新上传");
         }
         return bytes.buffer;
       }

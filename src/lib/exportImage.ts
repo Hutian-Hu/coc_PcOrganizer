@@ -218,7 +218,7 @@ export async function exportBoardImage(state: State): Promise<boolean> {
           ? p.cardName.length > 14
             ? p.cardName.slice(0, 14) + "…"
             : p.cardName
-          : "未关联卡背";
+          : "未关联角色卡";
         ctx.fillText(sub, tx, cy + 48);
       });
       y += Math.ceil(g.pcs.length / 3) * (CARD_H + 10) + 8;

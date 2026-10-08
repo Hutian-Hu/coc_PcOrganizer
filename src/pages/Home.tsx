@@ -152,7 +152,7 @@ export default function Home() {
       }
       setPreview({ pcName: pc.name, book });
     } catch (e) {
-      say(`卡背打开失败：${(e as Error).message}`, "error");
+      say(`角色卡打开失败：${(e as Error).message}`, "error");
     }
   }
 
@@ -453,7 +453,7 @@ function PreviewModal({
   const safeTab = Math.min(tab, Math.max(0, sheets.length - 1));
   const sheet = sheets[safeTab];
 
-  // 用户偏好：卡背头部的「总点数(不含运)/不算幸运」不显示点数，显示幸运值
+  // 用户偏好：角色卡头部的「总点数(不含运)/不算幸运」不显示点数，显示幸运值
   const luckValue = useMemo(() => {
     try {
       const attrs = extractAttrsFromBook(preview.book);
@@ -523,7 +523,7 @@ function PreviewModal({
             <FileSpreadsheet className="h-4 w-4" />
           </span>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium truncate">{preview.pcName} 的卡背</div>
+            <div className="text-sm font-medium truncate">{preview.pcName} 的角色卡</div>
             <div className="text-xs text-muted-foreground">共 {sheets.length} 个工作表</div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -593,17 +593,13 @@ function PreviewModal({
                       <tr key={ri} style={row.h ? { height: row.h } : undefined}>
                         {row.cells.map((cell, ci) => {
                           if (cell === null) return null;
-                          const next = row.cells[ci + 1];
-                          const spill =
-                            cell.style?.whiteSpace !== "pre-wrap" &&
-                            (next === undefined ? false : next === null || next.v === "");
                           return (
                             <td
                               key={ci}
-                              style={{ ...cell.style, overflow: spill ? "visible" : "hidden" }}
+                              style={cell.style}
                               colSpan={cell.colspan}
                               rowSpan={cell.rowspan}
-                              title={cell.v.length > 12 ? cell.v : undefined}
+                              title={cell.v || undefined}
                             >
                               {cell.v}
                             </td>
@@ -984,7 +980,7 @@ function HoColumn({
             <span className="text-[10px] text-muted-foreground/70 shrink-0">{total}</span>
             <button
               type="button"
-              className="text-muted-foreground/50 hover:text-destructive opacity-0 group-hover/col:opacity-100 transition-opacity shrink-0"
+              className="text-muted-foreground/60 hover:text-destructive opacity-40 hover:opacity-100 transition-opacity shrink-0"
               aria-label={`删除栏目 ${ho.name}`}
               disabled={busy}
               onClick={() => void run(() => removeHo(ho.id), `已删除栏目「${ho.name}」`)}
@@ -1193,7 +1189,7 @@ function PcDetailItem({
         <span className="text-sm font-medium truncate">{p.name}</span>
         <span className="text-[10px] text-muted-foreground/80 shrink-0">{hoName}</span>
         <span className="text-[10px] text-muted-foreground/70 truncate ml-auto shrink-0">
-          {p.card ? p.card.name : "无卡背"}
+          {p.card ? p.card.name : "无角色卡"}
         </span>
       </button>
       {open && (
@@ -1202,7 +1198,7 @@ function PcDetailItem({
             <AttrGrid attrs={p.attrs} />
           ) : (
             <div className="text-xs text-muted-foreground">
-              {p.card ? "未能从卡背中读取到属性" : "上传卡背后自动读取九项属性"}
+              {p.card ? "未能从角色卡中读取到属性" : "上传角色卡后自动读取九项属性"}
             </div>
           )}
           {p.card && (
@@ -1212,7 +1208,7 @@ function PcDetailItem({
               {p.card.sizeBytes > 0 && <span className="shrink-0">{fmtSize(p.card.sizeBytes)}</span>}
               <Button size="sm" variant="secondary" className="h-7 px-2 text-xs ml-auto shrink-0" onClick={() => onPreview(p)}>
                 <Eye className="h-3.5 w-3.5 mr-1" />
-                查看卡背
+                查看角色卡
               </Button>
             </div>
           )}
@@ -1277,7 +1273,7 @@ function PcEntry({
         } catch {
           /* 属性读取失败不阻塞上传 */
         }
-      }, `已关联卡背「${file.name}」`);
+      }, `已关联角色卡「${file.name}」`);
     } catch (e) {
       alert((e as Error).message);
     }
@@ -1389,7 +1385,7 @@ function PcEntry({
             <button
               type="button"
               className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground max-w-full"
-              title="点击预览卡背"
+              title="点击预览角色卡"
               onClick={() => onPreview(p)}
             >
               <FileSpreadsheet className="h-3 w-3 shrink-0" />
@@ -1417,7 +1413,7 @@ function PcEntry({
         )}
         {p.card ? (
           <>
-            <Button size="icon" variant="ghost" className="h-6 w-6" aria-label="预览卡背" onClick={() => onPreview(p)}>
+            <Button size="icon" variant="ghost" className="h-6 w-6" aria-label="预览角色卡" onClick={() => onPreview(p)}>
               <Eye className="h-3.5 w-3.5" />
             </Button>
             <Button size="icon" variant="ghost" className="h-6 w-6" aria-label="下载角色卡" onClick={downloadCard}>
@@ -1429,7 +1425,7 @@ function PcEntry({
             size="icon"
             variant="ghost"
             className="h-6 w-6"
-            aria-label="关联卡背"
+            aria-label="关联角色卡"
             disabled={busy}
             onClick={() => cardRef.current?.click()}
           >
