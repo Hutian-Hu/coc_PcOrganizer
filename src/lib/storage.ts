@@ -15,6 +15,8 @@ export type State = { hos: Ho[]; modules: Module[]; updatedAt: string };
 
 type Mode = "server" | "local";
 
+import { idbPutCard, idbGetCard, idbDeleteCard } from "./cardStore";
+
 let modePromise: Promise<Mode> | null = null;
 
 function detectMode(): Promise<Mode> {
@@ -68,10 +70,35 @@ function migrate(s: any): State {
 }
 
 function loadLocal(): State {
+  let s: State;
   try {
-    return migrate(JSON.parse(localStorage.getItem(LS_KEY) || ""));
+    s = migrate(JSON.parse(localStorage.getItem(LS_KEY) || ""));
   } catch {
     return { hos: defaultHos(), modules: [], updatedAt: "" };
+  }
+  // legacy: card binaries used to live inside the state JSON and blew the
+  // localStorage quota — migrate them into IndexedDB on first sight.
+  const hasLegacy = s.modules.some((m) => m.pcs.some((p) => p.card && (p.card as { data?: string }).data));
+  if (hasLegacy) void migrateLegacyCards(s);
+  return s;
+}
+
+async function migrateLegacyCards(s: State) {
+  try {
+    for (const m of s.modules) {
+      for (const p of m.pcs) {
+        const d = (p.card as { data?: string } | null)?.data;
+        if (!d) continue;
+        const bin = atob(d);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        await idbPutCard(p.id, bytes.buffer);
+        delete (p.card as { data?: string }).data;
+      }
+    }
+    saveLocal(s);
+  } catch {
+    /* 下次加载再试 */
   }
 }
 
@@ -188,6 +215,8 @@ export async function removeModule(id: string): Promise<void> {
     return;
   }
   const s = loadLocal();
+  const m = findModule(s, id);
+  if (m) for (const p of m.pcs) if (p.card) void idbDeleteCard(p.id).catch(() => {});
   s.modules = s.modules.filter((x) => x.id !== id);
   saveLocal(s);
 }
@@ -260,6 +289,9 @@ export async function removePc(moduleId: string, pcId: string): Promise<void> {
   }
   const s = loadLocal();
   const m = findModule(s, moduleId);
+  if (m?.pcs.some((p) => p.id === pcId)) {
+    void idbDeleteCard(pcId).catch(() => {});
+  }
   if (m) m.pcs = m.pcs.filter((p) => p.id !== pcId);
   saveLocal(s);
 }
@@ -294,18 +326,11 @@ export async function setCard(moduleId: string, pcId: string, file: File): Promi
   const buf = await file.arrayBuffer();
   const s = loadLocal();
   const p = findModule(s, moduleId)?.pcs.find((x) => x.id === pcId);
-  if (p) p.card = { name: file.name, sizeBytes: buf.byteLength, data: bufToBase64(buf) };
-  saveLocal(s);
-}
-
-function bufToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let out = "";
-  const step = 0x8000;
-  for (let i = 0; i < bytes.length; i += step) {
-    out += String.fromCharCode(...bytes.subarray(i, i + step));
+  if (p) {
+    await idbPutCard(p.id, buf);
+    p.card = { name: file.name, sizeBytes: buf.byteLength };
+    saveLocal(s);
   }
-  return btoa(out);
 }
 
 export async function getCardArrayBuffer(pcId: string): Promise<ArrayBuffer> {
@@ -317,15 +342,29 @@ export async function getCardArrayBuffer(pcId: string): Promise<ArrayBuffer> {
   const s = loadLocal();
   for (const m of s.modules) {
     for (const p of m.pcs) {
-      if (p.id === pcId && p.card?.data) {
-        const bin = atob(p.card.data);
+      if (p.id !== pcId || !p.card) continue;
+      const fromIdb = await idbGetCard(pcId);
+      if (fromIdb) {
+        if (p.card.sizeBytes && fromIdb.byteLength !== p.card.sizeBytes) {
+          throw new Error("卡背数据已损坏（大小校验失败），请重新上传");
+        }
+        return fromIdb;
+      }
+      // legacy fallback: card still embedded as base64 in the state JSON
+      const d = (p.card as { data?: string }).data;
+      if (d) {
+        const bin = atob(d);
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        void idbPutCard(pcId, bytes.buffer)
+          .then(() => migrateLegacyCards(s))
+          .catch(() => {});
         if (p.card.sizeBytes && bytes.length !== p.card.sizeBytes) {
           throw new Error("卡背数据已损坏（大小校验失败），请重新上传");
         }
         return bytes.buffer;
       }
+      throw new Error("未找到角色卡文件");
     }
   }
   throw new Error("未找到角色卡文件");

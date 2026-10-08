@@ -186,38 +186,7 @@ export function buildSheetRender(ws: ExcelJS.Worksheet): SheetRender {
   }
 
   const truncated = (ws.rowCount || 0) > lastRow || (ws.columnCount || 0) > lastCol;
-  const render: SheetRender = { name: ws.name, cols, rows, truncated };
-
-  // Excel behavior: text spills into adjacent empty cells on the same row.
-  // Replicate it with visual colspans so narrow columns don't clip labels.
-  const estWidth = (text: string, fontSize: number) => {
-    let w = 0;
-    for (const ch of text) w += ch.charCodeAt(0) > 0xff ? fontSize : fontSize * 0.55;
-    return w + 12;
-  };
-  for (const row of render.rows) {
-    for (let c = 0; c < lastCol; c++) {
-      const cell = row.cells[c];
-      if (!cell || cell.v === "" || cell.colspan) continue;
-      if (cell.style?.whiteSpace === "pre-wrap") continue; // wrapText cells never spill
-      if (/^-?[\d.,%/]+$/.test(cell.v.trim())) continue; // numbers never spill in Excel
-      const fs = typeof cell.style?.fontSize === "number" ? (cell.style.fontSize as number) : 12;
-      let avail = cols[c];
-      let span = 0;
-      while (avail < estWidth(cell.v, fs) && span < 8 && c + span + 1 < lastCol) {
-        const next = row.cells[c + span + 1];
-        if (next === null || next.v !== "") break; // merge-covered or has content
-        span++;
-        avail += cols[c + span];
-      }
-      if (span > 0) {
-        cell.colspan = span + 1;
-        for (let k = 1; k <= span; k++) row.cells[c + k] = null;
-      }
-    }
-  }
-
-  return render;
+  return { name: ws.name, cols, rows, truncated };
 }
 
 /* ---------- characteristic extraction ---------- */

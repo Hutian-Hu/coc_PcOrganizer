@@ -552,19 +552,24 @@ function PreviewModal({
                   <tbody>
                     {view.rows.map((row, ri) => (
                       <tr key={ri} style={row.h ? { height: row.h } : undefined}>
-                        {row.cells.map((cell, ci) =>
-                          cell === null ? null : (
+                        {row.cells.map((cell, ci) => {
+                          if (cell === null) return null;
+                          const next = row.cells[ci + 1];
+                          const spill =
+                            cell.style?.whiteSpace !== "pre-wrap" &&
+                            (next === undefined ? false : next === null || next.v === "");
+                          return (
                             <td
                               key={ci}
-                              style={cell.style}
+                              style={{ ...cell.style, overflow: spill ? "visible" : "hidden" }}
                               colSpan={cell.colspan}
                               rowSpan={cell.rowspan}
                               title={cell.v.length > 12 ? cell.v : undefined}
                             >
                               {cell.v}
                             </td>
-                          )
-                        )}
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
