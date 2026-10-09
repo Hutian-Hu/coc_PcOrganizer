@@ -11,7 +11,7 @@ export type Ho = { id: string; name: string };
 export type PcAttr = { label: string; value: number; half: number; fifth: number };
 export type Pc = { id: string; name: string; photo: string | null; card: CardMeta | null; hoId: string | null; attrs?: PcAttr[] | null };
 export type Module = { id: string; name: string; status: Status; pcs: Pc[] };
-export type State = { hos: Ho[]; modules: Module[]; updatedAt: string };
+export type State = { hos: Ho[]; modules: Module[]; pcOrder: string[]; updatedAt: string };
 
 type Mode = "server" | "local";
 
@@ -39,7 +39,9 @@ function defaultHos(): Ho[] {
 }
 
 function migrate(s: any): State {
-  if (!s || !Array.isArray(s.modules)) return { hos: defaultHos(), modules: [], updatedAt: "" };
+  if (!s || !Array.isArray(s.modules)) {
+    return { hos: defaultHos(), modules: [], pcOrder: [], updatedAt: "" };
+  }
   const globalHos: Ho[] = Array.isArray(s.hos) ? s.hos : [];
   const byName = new Map<string, Ho>(globalHos.map((h) => [h.name, h]));
   for (const m of s.modules) {
@@ -66,6 +68,11 @@ function migrate(s: any): State {
   for (const m of s.modules) {
     for (const p of m.pcs) if (p.hoId && !ids.has(p.hoId)) p.hoId = null;
   }
+  // 全局显示顺序：看板栏目按它渲染，与模组归属解耦；缺省按现有模组顺序生成
+  const all = s.modules.flatMap((m: Module) => m.pcs.map((p: Pc) => p.id));
+  const order: string[] = Array.isArray(s.pcOrder) ? s.pcOrder.filter((id: string) => all.includes(id)) : [];
+  for (const id of all) if (!order.includes(id)) order.push(id);
+  s.pcOrder = order;
   return s as State;
 }
 
@@ -74,7 +81,7 @@ function loadLocal(): State {
   try {
     s = migrate(JSON.parse(localStorage.getItem(LS_KEY) || ""));
   } catch {
-    return { hos: defaultHos(), modules: [], updatedAt: "" };
+    return { hos: defaultHos(), modules: [], pcOrder: [], updatedAt: "" };
   }
   // legacy: card binaries used to live inside the state JSON and blew the
   // localStorage quota — migrate them into IndexedDB on first sight.
@@ -217,7 +224,9 @@ export async function removeModule(id: string): Promise<void> {
   const s = loadLocal();
   const m = findModule(s, id);
   if (m) for (const p of m.pcs) if (p.card) void idbDeleteCard(p.id).catch(() => {});
+  const dead = new Set(m?.pcs.map((p) => p.id) ?? []);
   s.modules = s.modules.filter((x) => x.id !== id);
+  s.pcOrder = s.pcOrder.filter((pid) => !dead.has(pid));
   saveLocal(s);
 }
 
@@ -230,7 +239,11 @@ export async function addPc(moduleId: string, name: string): Promise<void> {
   }
   const s = loadLocal();
   const m = findModule(s, moduleId);
-  if (m) m.pcs.push({ id: uid("p"), name, photo: null, card: null, hoId: null });
+  if (m) {
+    const pc = { id: uid("p"), name, photo: null, card: null, hoId: null };
+    m.pcs.push(pc);
+    s.pcOrder.push(pc.id);
+  }
   saveLocal(s);
 }
 
@@ -266,7 +279,9 @@ export async function setPcHo(moduleId: string, pcId: string, hoId: string | nul
   }
 }
 
-export async function movePc(
+// 调整 PC：设置 HO 位并在全局顺序表中插入到 beforePcId 之前（null = 放到最后）。
+// 只影响显示位置，不改变 PC 所在模组。
+export async function orderPc(
   moduleId: string,
   pcId: string,
   targetHoId: string | null,
@@ -280,43 +295,13 @@ export async function movePc(
     return;
   }
   const s = loadLocal();
-  const m = findModule(s, moduleId);
-  const p = m?.pcs.find((x) => x.id === pcId);
-  if (!m || !p) return;
+  const p = findModule(s, moduleId)?.pcs.find((x) => x.id === pcId);
+  if (!p) return;
   if (targetHoId === null || s.hos.some((h) => h.id === targetHoId)) p.hoId = targetHoId;
-  const rest = m.pcs.filter((x) => x.id !== pcId);
-  const idx = beforePcId ? rest.findIndex((x) => x.id === beforePcId) : -1;
-  if (idx >= 0) rest.splice(idx, 0, p);
-  else rest.push(p);
-  m.pcs = rest;
-  saveLocal(s);
-}
-
-// 跨模组移动 PC（同栏目内跨模组组排序时用）
-export async function movePcToModule(
-  sourceModuleId: string,
-  pcId: string,
-  targetModuleId: string,
-  beforePcId?: string | null
-): Promise<void> {
-  if ((await detectMode()) === "server") {
-    await serverReq(`/api/modules/${sourceModuleId}/pcs/${pcId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ moduleId: targetModuleId, beforePcId: beforePcId ?? null }),
-    });
-    return;
-  }
-  const s = loadLocal();
-  const src = findModule(s, sourceModuleId);
-  const dst = findModule(s, targetModuleId);
-  const p = src?.pcs.find((x) => x.id === pcId);
-  if (!src || !dst || !p) return;
-  src.pcs = src.pcs.filter((x) => x.id !== pcId);
-  const rest = dst.pcs.filter((x) => x.id !== pcId);
-  const idx = beforePcId ? rest.findIndex((x) => x.id === beforePcId) : -1;
-  if (idx >= 0) rest.splice(idx, 0, p);
-  else rest.push(p);
-  dst.pcs = rest;
+  s.pcOrder = s.pcOrder.filter((id) => id !== pcId);
+  const idx = beforePcId ? s.pcOrder.indexOf(beforePcId) : -1;
+  if (idx >= 0) s.pcOrder.splice(idx, 0, pcId);
+  else s.pcOrder.push(pcId);
   saveLocal(s);
 }
 
@@ -347,6 +332,7 @@ export async function removePc(moduleId: string, pcId: string): Promise<void> {
     void idbDeleteCard(pcId).catch(() => {});
   }
   if (m) m.pcs = m.pcs.filter((p) => p.id !== pcId);
+  s.pcOrder = s.pcOrder.filter((pid) => pid !== pcId);
   saveLocal(s);
 }
 

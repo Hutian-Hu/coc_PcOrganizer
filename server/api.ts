@@ -21,7 +21,7 @@ type Pc = {
   attrs?: { label: string; value: number; half: number; fifth: number }[] | null;
 };
 type Module = { id: string; name: string; status: Status; pcs: Pc[] };
-type State = { hos: Ho[]; modules: Module[]; updatedAt: string };
+type State = { hos: Ho[]; modules: Module[]; pcOrder: string[]; updatedAt: string };
 
 const STATUSES: Status[] = ["planned", "ongoing", "paused", "disbanded", "finished"];
 
@@ -37,7 +37,7 @@ function defaultHos(): Ho[] {
 // now global. Merge module-level slots into one global list keyed by name and
 // rewrite pc.hoId to the global ids.
 function migrate(s: any): State {
-  if (!s || !Array.isArray(s.modules)) return { hos: defaultHos(), modules: [], updatedAt: "" };
+  if (!s || !Array.isArray(s.modules)) return { hos: defaultHos(), modules: [], pcOrder: [], updatedAt: "" };
   const globalHos: Ho[] = Array.isArray(s.hos) ? s.hos : [];
   const byName = new Map<string, Ho>(globalHos.map((h) => [h.name, h]));
   for (const m of s.modules) {
@@ -64,6 +64,11 @@ function migrate(s: any): State {
   for (const m of s.modules) {
     for (const p of m.pcs) if (p.hoId && !ids.has(p.hoId)) p.hoId = null;
   }
+  // 全局显示顺序表：缺省按现有模组顺序生成，丢弃悬空的 id
+  const all = s.modules.flatMap((m: Module) => m.pcs.map((p: Pc) => p.id));
+  const order: string[] = Array.isArray(s.pcOrder) ? s.pcOrder.filter((id: string) => all.includes(id)) : [];
+  for (const id of all) if (!order.includes(id)) order.push(id);
+  s.pcOrder = order;
   return s as State;
 }
 
@@ -76,7 +81,7 @@ function loadState(): State {
   try {
     return migrate(JSON.parse(fs.readFileSync(STATE_FILE, "utf8")));
   } catch {
-    return { hos: defaultHos(), modules: [], updatedAt: "" };
+    return { hos: defaultHos(), modules: [], pcOrder: [], updatedAt: "" };
   }
 }
 
@@ -89,6 +94,7 @@ function saveState(s: State) {
 function publicState(s: State) {
   return {
     hos: s.hos,
+    pcOrder: s.pcOrder,
     updatedAt: s.updatedAt,
     modules: s.modules.map((m) => ({
       id: m.id,
@@ -245,7 +251,9 @@ async function handle(req: any, res: any, url: string) {
         }
       }
     }
+    const dead = new Set(m?.pcs.map((p) => p.id) ?? []);
     state.modules = state.modules.filter((x) => x.id !== id);
+    state.pcOrder = state.pcOrder.filter((pid) => !dead.has(pid));
     saveState(state);
     return json(res, 200, { ok: true });
   }
@@ -257,6 +265,7 @@ async function handle(req: any, res: any, url: string) {
     const name = String(body.name || "").trim() || "未命名 PC";
     const pc: Pc = { id: uid("p"), name, photo: null, card: null, hoId: null };
     m.pcs.push(pc);
+    state.pcOrder.push(pc.id);
     saveState(state);
     return json(res, 200, { pc });
   }
@@ -267,29 +276,17 @@ async function handle(req: any, res: any, url: string) {
     const p = m?.pcs.find((x) => x.id === decodeURIComponent(seg[4]));
     if (!m || !p) return json(res, 404, { error: "PC 不存在" });
     if (typeof body.name === "string" && body.name.trim()) p.name = body.name.trim();
-    // 跨模组移动
-    if (typeof body.moduleId === "string" && body.moduleId !== m.id) {
-      const dst = findModule(state, body.moduleId);
-      if (dst) {
-        m.pcs = m.pcs.filter((x) => x.id !== p.id);
-        dst.pcs.push(p);
-      }
-    }
     if (body.hoId === null) p.hoId = null;
     else if (typeof body.hoId === "string" && state.hos.some((h) => h.id === body.hoId)) {
       p.hoId = body.hoId;
     }
-    // 在 PC 当前所在模组内调整顺序：移到 beforePcId 之前（null 表示放到末尾）
+    // 全局显示顺序：移到 beforePcId 之前（null 表示放到最后），不改变所在模组
     if (body.beforePcId !== undefined) {
-      const owner = state.modules.find((mm) => mm.pcs.some((x) => x.id === p.id));
-      if (owner) {
-        const rest = owner.pcs.filter((x) => x.id !== p.id);
-        const idx =
-          body.beforePcId === null ? -1 : rest.findIndex((x) => x.id === String(body.beforePcId));
-        if (idx >= 0) rest.splice(idx, 0, p);
-        else rest.push(p);
-        owner.pcs = rest;
-      }
+      state.pcOrder = state.pcOrder.filter((id) => id !== p.id);
+      const idx =
+        body.beforePcId === null ? -1 : state.pcOrder.findIndex((id) => id === String(body.beforePcId));
+      if (idx >= 0) state.pcOrder.splice(idx, 0, p.id);
+      else state.pcOrder.push(p.id);
     }
     if (body.attrs !== undefined) {
       if (body.attrs === null) {
@@ -317,6 +314,7 @@ async function handle(req: any, res: any, url: string) {
       try { fs.unlinkSync(f); } catch { /* ignore */ }
     }
     m.pcs = m.pcs.filter((x) => x.id !== p.id);
+    state.pcOrder = state.pcOrder.filter((pid) => pid !== p.id);
     saveState(state);
     return json(res, 200, { ok: true });
   }

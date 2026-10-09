@@ -1,5 +1,7 @@
 // One-click export of the HO board as a long PNG image.
 // Only HO columns that actually contain PCs are exported (plus 未分配 if non-empty).
+// Cards are laid out flat in the column's display order; a module line is drawn
+// whenever consecutive cards belong to different modules.
 
 import type { State, Status } from "./storage";
 
@@ -58,43 +60,55 @@ const CARD_H = 76;
 const S = 2; // retina scale
 
 export async function exportBoardImage(state: State): Promise<boolean> {
+  type Entry = {
+    key: string;
+    name: string;
+    photo: string | null;
+    cardName: string | null;
+    moduleName: string;
+    moduleStatus: Status;
+  };
   type Col = {
     title: string;
-    color: string; // css color or "hsl(var(--muted))"
-    groups: { name: string; status: Status; pcs: { name: string; photo: string | null; cardName: string | null }[] }[];
+    color: string;
+    pcs: Entry[];
   };
+
+  const rank = new Map<string, number>();
+  (state.pcOrder ?? []).forEach((id, i) => rank.set(id, i));
+  const rankOf = (id: string) => rank.get(id) ?? 99999;
+
+  // flat list of PCs for a predicate, in global display order
+  const flatOf = (pred: (hoId: string | null) => boolean): Entry[] =>
+    state.modules
+      .flatMap((m) =>
+        m.pcs
+          .filter((p) => pred(p.hoId))
+          .map((p) => ({
+            key: p.id,
+            name: p.name,
+            photo: p.photo,
+            cardName: p.card?.name ?? null,
+            moduleName: m.name,
+            moduleStatus: m.status,
+          }))
+      )
+      .sort((a, b) => rankOf(a.key) - rankOf(b.key));
 
   const cols: Col[] = [];
   state.hos.forEach((ho, i) => {
-    const groups = state.modules
-      .map((m) => ({
-        name: m.name,
-        status: m.status,
-        pcs: m.pcs
-          .filter((p) => p.hoId === ho.id)
-          .map((p) => ({ name: p.name, photo: p.photo, cardName: p.card?.name ?? null })),
-      }))
-      .filter((g) => g.pcs.length > 0);
-    const total = groups.reduce((n, g) => n + g.pcs.length, 0);
-    if (total > 0) {
+    const pcs = flatOf((hoId) => hoId === ho.id);
+    if (pcs.length > 0) {
       cols.push({
         title: ho.name,
         color: `hsl(${cssVar(`--ho-${(i % 4) + 1}`)})`,
-        groups,
+        pcs,
       });
     }
   });
-  const un = state.modules
-    .map((m) => ({
-      name: m.name,
-      status: m.status,
-      pcs: m.pcs
-        .filter((p) => !p.hoId)
-        .map((p) => ({ name: p.name, photo: p.photo, cardName: p.card?.name ?? null })),
-    }))
-    .filter((g) => g.pcs.length > 0);
+  const un = flatOf((hoId) => !hoId);
   if (un.length > 0) {
-    cols.push({ title: "未分配", color: cssVar("--border") || "#ccc", groups: un });
+    cols.push({ title: "未分配", color: cssVar("--border") || "#ccc", pcs: un });
   }
   if (!cols.length) return false;
 
@@ -102,26 +116,30 @@ export async function exportBoardImage(state: State): Promise<boolean> {
   const photos = new Map<string, HTMLImageElement | null>();
   await Promise.all(
     cols.flatMap((c) =>
-      c.groups.flatMap((g) =>
-        g.pcs.map(async (p) => {
-          if (p.photo) photos.set(p.name + p.cardName, await loadImg(p.photo));
-        })
-      )
+      c.pcs.map(async (p) => {
+        if (p.photo) photos.set(p.key, await loadImg(p.photo));
+      })
     )
   );
 
   const font = (size: number, weight = 400) => `${weight} ${size}px 'PingFang SC','Hiragino Sans GB',sans-serif`;
 
-  // measure height
-  let H = PAD;
-  for (const col of cols) {
-    H += 38; // section header
-    for (const g of col.groups) {
-      H += 30; // module line
-      H += Math.ceil(g.pcs.length / 3) * (CARD_H + 10) + 8;
+  // measure height: walk rows; a module boundary costs 26px, each row CARD_H+10
+  const colHeight = (pcs: Entry[]): number => {
+    let h = 38; // section header
+    let i = 0;
+    while (i < pcs.length) {
+      if (i === 0 || pcs[i].moduleName !== pcs[i - 1].moduleName) h += 26;
+      const boundary = pcs[i].moduleName;
+      let j = i;
+      while (j < pcs.length && j - i < 3 && pcs[j].moduleName === boundary) j++;
+      h += CARD_H + 10;
+      i = j;
     }
-    H += 18;
-  }
+    return h + 8 + 18;
+  };
+  let H = PAD;
+  for (const col of cols) H += colHeight(col.pcs);
   H += PAD - 18;
 
   const canvas = document.createElement("canvas");
@@ -150,32 +168,37 @@ export async function exportBoardImage(state: State): Promise<boolean> {
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
     ctx.fillText(col.title, PAD + 14, y + 16);
-    const total = col.groups.reduce((n, g) => n + g.pcs.length, 0);
     ctx.textAlign = "right";
     ctx.font = font(12);
-    ctx.fillText(`${total} 个 PC`, W - PAD - 14, y + 16);
+    ctx.fillText(`${col.pcs.length} 个 PC`, W - PAD - 14, y + 16);
     ctx.textAlign = "left";
     y += 38;
 
-    for (const g of col.groups) {
-      // module line: dot + name + status
-      ctx.fillStyle = `hsl(${STATUS_DOT[g.status]})`;
-      ctx.beginPath();
-      ctx.arc(PAD + 6, y + 11, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = fg;
-      ctx.font = font(13, 600);
-      ctx.fillText(g.name, PAD + 18, y + 12);
-      const nameW = ctx.measureText(g.name).width;
-      ctx.fillStyle = STATUS_TEXT_COLOR[g.status];
-      ctx.font = font(11);
-      ctx.fillText(`· ${STATUS_TEXT[g.status]}`, PAD + 18 + nameW + 6, y + 12);
-      y += 26;
-
-      // pc cards, 3 per row
-      g.pcs.forEach((p, i) => {
-        const cx = PAD + (i % 3) * (CARD_W + 8);
-        const cy = y + Math.floor(i / 3) * (CARD_H + 10);
+    // draw cards row by row; module line at boundaries
+    let i = 0;
+    while (i < col.pcs.length) {
+      if (i === 0 || col.pcs[i].moduleName !== col.pcs[i - 1].moduleName) {
+        const st = col.pcs[i].moduleStatus;
+        ctx.fillStyle = `hsl(${STATUS_DOT[st]})`;
+        ctx.beginPath();
+        ctx.arc(PAD + 6, y + 11, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = fg;
+        ctx.font = font(13, 600);
+        ctx.fillText(col.pcs[i].moduleName, PAD + 18, y + 12);
+        const nameW = ctx.measureText(col.pcs[i].moduleName).width;
+        ctx.fillStyle = STATUS_TEXT_COLOR[st];
+        ctx.font = font(11);
+        ctx.fillText(`· ${STATUS_TEXT[st]}`, PAD + 18 + nameW + 6, y + 12);
+        y += 26;
+      }
+      const boundary = col.pcs[i].moduleName;
+      let j = i;
+      while (j < col.pcs.length && j - i < 3 && col.pcs[j].moduleName === boundary) j++;
+      for (let k = i; k < j; k++) {
+        const p = col.pcs[k];
+        const cx = PAD + (k - i) * (CARD_W + 8);
+        const cy = y;
         ctx.fillStyle = cardBg;
         rr(ctx, cx, cy, CARD_W, CARD_H, 10);
         ctx.fill();
@@ -184,7 +207,7 @@ export async function exportBoardImage(state: State): Promise<boolean> {
         rr(ctx, cx + 0.5, cy + 0.5, CARD_W - 1, CARD_H - 1, 10);
         ctx.stroke();
 
-        const img = p.photo ? photos.get(p.name + p.cardName) : null;
+        const img = p.photo ? photos.get(p.key) : null;
         const px = cx + 10;
         const py = cy + (CARD_H - 52) / 2;
         if (img) {
@@ -220,10 +243,11 @@ export async function exportBoardImage(state: State): Promise<boolean> {
             : p.cardName
           : "未关联角色卡";
         ctx.fillText(sub, tx, cy + 48);
-      });
-      y += Math.ceil(g.pcs.length / 3) * (CARD_H + 10) + 8;
+      }
+      y += CARD_H + 10;
+      i = j;
     }
-    y += 18;
+    y += 8 + 18;
   }
 
   // footer

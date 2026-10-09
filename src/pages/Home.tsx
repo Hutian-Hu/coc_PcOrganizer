@@ -20,6 +20,7 @@ import {
   GripVertical,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   ZoomIn,
   ZoomOut,
   Users,
@@ -46,9 +47,7 @@ import {
   reorderHos,
   addPc,
   renamePc,
-  setPcHo,
-  movePc,
-  movePcToModule,
+  orderPc,
   removePc,
   setPhoto,
   setCard,
@@ -86,7 +85,7 @@ function fmtSize(n?: number) {
 }
 
 export default function Home() {
-  const [state, setState] = useState<State>({ hos: [], modules: [], updatedAt: "" });
+  const [state, setState] = useState<State>({ hos: [], modules: [], pcOrder: [], updatedAt: "" });
   const [filter, setFilter] = useState<"all" | Status>("all");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; kind: "error" | "info" } | null>(null);
@@ -291,6 +290,7 @@ export default function Home() {
         <HoBoard
           hos={state.hos}
           modules={visibleModules}
+          pcOrder={state.pcOrder}
           busy={busy}
           run={run}
           onViewPhoto={(src, name) => setViewer({ src, name })}
@@ -755,6 +755,12 @@ type DragInfo = DragPayload & {
 
 const UNASSIGNED = "__unassigned__";
 
+// 按全局顺序表排序（缺失的排到最后，保持相对稳定）
+function byOrder<T extends { id: string }>(order: string[]) {
+  const rank = new Map(order.map((id, i) => [id, i]));
+  return (a: T, b: T) => (rank.get(a.id) ?? 99999) - (rank.get(b.id) ?? 99999);
+}
+
 function HoBoard({
   hos,
   modules,
@@ -762,10 +768,12 @@ function HoBoard({
   run,
   onViewPhoto,
   onPreview,
+  pcOrder,
   onCrop,
 }: {
   hos: Ho[];
   modules: Module[];
+  pcOrder: string[];
   busy: boolean;
   run: Run;
   onViewPhoto: (src: string, name: string) => void;
@@ -855,29 +863,24 @@ function HoBoard({
     }
     const target = hit.overHo;
     if (target === undefined) return; // 落在栏目之外，不处理
+    const before = hit.overBeforePcId;
+    if (before === payload.pcId) return;
     const cur = pcHo.current.get(payload.pcId) ?? null;
     if (cur !== target) {
       const label = target ? (hos.find((h) => h.id === target)?.name ?? "") : "未分配";
-      void run(() => setPcHo(payload.moduleId, payload.pcId, target), `已移动到「${label}」`);
+      void run(() => orderPc(payload.moduleId, payload.pcId, target, before), `已移动到「${label}」`);
       return;
     }
-    // 同一 HO 位内排序（允许跨模组组：落到哪一组就加入哪个模组）
-    const before = hit.overBeforePcId;
-    if (before === payload.pcId) return;
+    // 同一 HO 位内排序：只改全局显示顺序，不改变 PC 所在模组
     const flat = modules
-      .flatMap((m) => m.pcs.filter((p) => (p.hoId ?? null) === target).map((p) => ({ id: p.id, moduleId: m.id })));
-    const from = flat.findIndex((x) => x.id === payload.pcId);
-    const to = before ? flat.findIndex((x) => x.id === before) : flat.length;
+      .flatMap((m) => m.pcs)
+      .filter((p) => (p.hoId ?? null) === target)
+      .sort(byOrder(pcOrder))
+      .map((p) => p.id);
+    const from = flat.indexOf(payload.pcId);
+    const to = before ? flat.indexOf(before) : flat.length;
     if (from === -1 || to === -1 || to === from || to === from + 1) return; // 位置未变
-    const dest = before ? flat[to] : flat[flat.length - 1];
-    if (dest.moduleId === payload.moduleId) {
-      void run(() => movePc(payload.moduleId, payload.pcId, target, before), "已调整顺序");
-    } else {
-      void run(
-        () => movePcToModule(payload.moduleId, payload.pcId, dest.moduleId, before),
-        "已调整顺序"
-      );
-    }
+    void run(() => orderPc(payload.moduleId, payload.pcId, target, before), "已调整顺序");
   }
 
   function beginDrag(payload: DragPayload, e: React.PointerEvent) {
@@ -926,6 +929,7 @@ function HoBoard({
             colIndex={i}
             colKey={ho.id}
             modules={modules}
+            pcOrder={pcOrder}
             busy={busy}
             run={run}
             onViewPhoto={onViewPhoto}
@@ -945,6 +949,7 @@ function HoBoard({
           colIndex={hos.length}
           colKey={UNASSIGNED}
           modules={modules}
+          pcOrder={pcOrder}
           busy={busy}
           run={run}
           onViewPhoto={onViewPhoto}
@@ -1022,6 +1027,7 @@ function HoColumn({
   colIndex,
   colKey,
   modules,
+  pcOrder,
   busy,
   run,
   onViewPhoto,
@@ -1038,6 +1044,7 @@ function HoColumn({
   colIndex: number;
   colKey: string;
   modules: Module[];
+  pcOrder: string[];
   busy: boolean;
   run: Run;
   onViewPhoto: (src: string, name: string) => void;
@@ -1057,13 +1064,14 @@ function HoColumn({
   const hoVar = ho ? `var(--ho-${(colIndex % 4) + 1})` : "var(--border)";
   const colHoId = ho ? ho.id : null;
 
-  const groups = modules
-    .map((m) => ({
-      module: m,
-      pcs: ho ? m.pcs.filter((p) => p.hoId === ho.id) : m.pcs.filter((p) => !p.hoId),
-    }))
-    .filter((g) => g.pcs.length > 0);
-  const total = groups.reduce((n, g) => n + g.pcs.length, 0);
+  // 栏目内平铺显示，按全局顺序表排序；模组信息仍显示在卡片上
+  const moduleOf = new Map<string, Module>();
+  for (const m of modules) for (const pc of m.pcs) moduleOf.set(pc.id, m);
+  const pcs = modules
+    .flatMap((m) => m.pcs)
+    .filter((p) => (ho ? p.hoId === ho.id : !p.hoId))
+    .sort(byOrder(pcOrder));
+  const total = pcs.length;
 
   const dragOver = nativeOver || (!!drag?.active && drag.overHo !== undefined && drag.overHo === colHoId);
   const pcDrag = drag?.active && drag.kind === "pc" ? drag : null;
@@ -1154,41 +1162,31 @@ function HoColumn({
         )}
       </div>
 
-      <div className="flex flex-col gap-3">
-        {groups.length === 0 && (
+      <div className="flex flex-col gap-1.5">
+        {total === 0 && (
           <div className="text-[11px] text-muted-foreground/70 text-center py-3">
             {ho ? "把 PC 拖到这里" : "在下方模组管理中添加 PC"}
           </div>
         )}
-        {groups.map(({ module: m, pcs }) => (
-          <div key={m.id} className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-1.5 px-0.5">
-              <span className={`h-1.5 w-1.5 rounded-full shrink-0 dot-${m.status}`} />
-              <span
-                className="h-1.5 flex-1 rounded-full"
-                style={{ background: `hsl(var(--morandi-${m.status}) / 0.45)` }}
-              />
-            </div>
-            {pcs.map((p) => (
-              <div key={p.id} className="flex flex-col gap-1.5">
-                {pcDrag && pcDrag.overHo === colHoId && pcDrag.overBeforePcId === p.id && pcDrag.pcId !== p.id && (
-                  <div className="h-0.5 rounded-full bg-primary shadow-[0_0_6px_hsl(var(--primary))]" />
-                )}
-                <PcEntry
-                  module={m}
-                  pc={p}
-                  busy={busy}
-                  run={run}
-                  onViewPhoto={onViewPhoto}
-                  onPreview={onPreview}
-                  onCrop={onCrop}
-                  pcRef={registerPc}
-                  onDragStart={onDragStart}
-                  onNativeDragStart={onNativeDragStart}
-                  isDragging={!!pcDrag && pcDrag.pcId === p.id}
-                />
-              </div>
-            ))}
+        {pcs.map((p) => (
+          <div key={p.id} className="flex flex-col gap-1.5">
+            {pcDrag && pcDrag.overHo === colHoId && pcDrag.overBeforePcId === p.id && pcDrag.pcId !== p.id && (
+              <div className="h-0.5 rounded-full bg-primary shadow-[0_0_6px_hsl(var(--primary))]" />
+            )}
+            <PcEntry
+              module={moduleOf.get(p.id)!}
+              pc={p}
+              siblings={pcs}
+              busy={busy}
+              run={run}
+              onViewPhoto={onViewPhoto}
+              onPreview={onPreview}
+              onCrop={onCrop}
+              pcRef={registerPc}
+              onDragStart={onDragStart}
+              onNativeDragStart={onNativeDragStart}
+              isDragging={!!pcDrag && pcDrag.pcId === p.id}
+            />
           </div>
         ))}
         {pcDrag && pcDrag.overHo === colHoId && pcDrag.overBeforePcId === null && total > 0 && (
@@ -1412,6 +1410,7 @@ function AttrGrid({ attrs }: { attrs: PcAttr[] }) {
 function PcEntry({
   module: m,
   pc: p,
+  siblings,
   busy,
   run,
   onViewPhoto,
@@ -1424,6 +1423,7 @@ function PcEntry({
 }: {
   module: Module;
   pc: Pc;
+  siblings: Pc[];
   busy: boolean;
   run: Run;
   onViewPhoto: (src: string, name: string) => void;
@@ -1590,6 +1590,49 @@ function PcEntry({
         >
           <GripVertical className="h-3.5 w-3.5" />
         </button>
+        {(() => {
+          const idx = siblings.findIndex((x) => x.id === p.id);
+          return (
+            <>
+              <button
+                type="button"
+                className="h-6 w-6 inline-flex items-center justify-center text-muted-foreground/60 hover:text-foreground disabled:opacity-20 shrink-0"
+                aria-label={`上移 ${p.name}`}
+                title="上移"
+                disabled={busy || idx <= 0}
+                onClick={() =>
+                  void run(
+                    () => orderPc(m.id, p.id, p.hoId ?? null, idx > 0 ? siblings[idx - 1].id : null),
+                    "已上移"
+                  )
+                }
+              >
+                <ChevronUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className="h-6 w-6 inline-flex items-center justify-center text-muted-foreground/60 hover:text-foreground disabled:opacity-20 shrink-0"
+                aria-label={`下移 ${p.name}`}
+                title="下移"
+                disabled={busy || idx === -1 || idx >= siblings.length - 1}
+                onClick={() =>
+                  void run(
+                    () =>
+                      orderPc(
+                        m.id,
+                        p.id,
+                        p.hoId ?? null,
+                        idx + 2 < siblings.length ? siblings[idx + 2].id : null
+                      ),
+                    "已下移"
+                  )
+                }
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            </>
+          );
+        })()}
         {!p.photo && (
           <Button
             size="icon"
