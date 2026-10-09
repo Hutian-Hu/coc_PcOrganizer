@@ -292,6 +292,34 @@ export async function movePc(
   saveLocal(s);
 }
 
+// 跨模组移动 PC（同栏目内跨模组组排序时用）
+export async function movePcToModule(
+  sourceModuleId: string,
+  pcId: string,
+  targetModuleId: string,
+  beforePcId?: string | null
+): Promise<void> {
+  if ((await detectMode()) === "server") {
+    await serverReq(`/api/modules/${sourceModuleId}/pcs/${pcId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ moduleId: targetModuleId, beforePcId: beforePcId ?? null }),
+    });
+    return;
+  }
+  const s = loadLocal();
+  const src = findModule(s, sourceModuleId);
+  const dst = findModule(s, targetModuleId);
+  const p = src?.pcs.find((x) => x.id === pcId);
+  if (!src || !dst || !p) return;
+  src.pcs = src.pcs.filter((x) => x.id !== pcId);
+  const rest = dst.pcs.filter((x) => x.id !== pcId);
+  const idx = beforePcId ? rest.findIndex((x) => x.id === beforePcId) : -1;
+  if (idx >= 0) rest.splice(idx, 0, p);
+  else rest.push(p);
+  dst.pcs = rest;
+  saveLocal(s);
+}
+
 export async function setPcAttrs(moduleId: string, pcId: string, attrs: PcAttr[] | null): Promise<void> {
   if ((await detectMode()) === "server") {
     await serverReq(`/api/modules/${moduleId}/pcs/${pcId}`, {

@@ -48,6 +48,7 @@ import {
   renamePc,
   setPcHo,
   movePc,
+  movePcToModule,
   removePc,
   setPhoto,
   setCard,
@@ -860,17 +861,23 @@ function HoBoard({
       void run(() => setPcHo(payload.moduleId, payload.pcId, target), `已移动到「${label}」`);
       return;
     }
-    // 同一 HO 位内排序
+    // 同一 HO 位内排序（允许跨模组组：落到哪一组就加入哪个模组）
     const before = hit.overBeforePcId;
     if (before === payload.pcId) return;
-    const order = modules
-      .flatMap((m) => m.pcs)
-      .filter((p) => (p.hoId ?? null) === target)
-      .map((p) => p.id);
-    const from = order.indexOf(payload.pcId);
-    const to = before ? order.indexOf(before) : order.length;
+    const flat = modules
+      .flatMap((m) => m.pcs.filter((p) => (p.hoId ?? null) === target).map((p) => ({ id: p.id, moduleId: m.id })));
+    const from = flat.findIndex((x) => x.id === payload.pcId);
+    const to = before ? flat.findIndex((x) => x.id === before) : flat.length;
     if (from === -1 || to === -1 || to === from || to === from + 1) return; // 位置未变
-    void run(() => movePc(payload.moduleId, payload.pcId, target, before), "已调整顺序");
+    const dest = before ? flat[to] : flat[flat.length - 1];
+    if (dest.moduleId === payload.moduleId) {
+      void run(() => movePc(payload.moduleId, payload.pcId, target, before), "已调整顺序");
+    } else {
+      void run(
+        () => movePcToModule(payload.moduleId, payload.pcId, dest.moduleId, before),
+        "已调整顺序"
+      );
+    }
   }
 
   function beginDrag(payload: DragPayload, e: React.PointerEvent) {

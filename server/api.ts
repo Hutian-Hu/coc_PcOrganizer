@@ -267,18 +267,29 @@ async function handle(req: any, res: any, url: string) {
     const p = m?.pcs.find((x) => x.id === decodeURIComponent(seg[4]));
     if (!m || !p) return json(res, 404, { error: "PC 不存在" });
     if (typeof body.name === "string" && body.name.trim()) p.name = body.name.trim();
+    // 跨模组移动
+    if (typeof body.moduleId === "string" && body.moduleId !== m.id) {
+      const dst = findModule(state, body.moduleId);
+      if (dst) {
+        m.pcs = m.pcs.filter((x) => x.id !== p.id);
+        dst.pcs.push(p);
+      }
+    }
     if (body.hoId === null) p.hoId = null;
     else if (typeof body.hoId === "string" && state.hos.some((h) => h.id === body.hoId)) {
       p.hoId = body.hoId;
     }
-    // 同模组内调整顺序：把该 PC 移到 beforePcId 之前（null 表示放到末尾）
+    // 在 PC 当前所在模组内调整顺序：移到 beforePcId 之前（null 表示放到末尾）
     if (body.beforePcId !== undefined) {
-      const rest = m.pcs.filter((x) => x.id !== p.id);
-      const idx =
-        body.beforePcId === null ? -1 : rest.findIndex((x) => x.id === String(body.beforePcId));
-      if (idx >= 0) rest.splice(idx, 0, p);
-      else rest.push(p);
-      m.pcs = rest;
+      const owner = state.modules.find((mm) => mm.pcs.some((x) => x.id === p.id));
+      if (owner) {
+        const rest = owner.pcs.filter((x) => x.id !== p.id);
+        const idx =
+          body.beforePcId === null ? -1 : rest.findIndex((x) => x.id === String(body.beforePcId));
+        if (idx >= 0) rest.splice(idx, 0, p);
+        else rest.push(p);
+        owner.pcs = rest;
+      }
     }
     if (body.attrs !== undefined) {
       if (body.attrs === null) {
