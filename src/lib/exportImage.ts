@@ -1,7 +1,8 @@
 // One-click export of the HO board as a long PNG image.
 // Only HO columns that actually contain PCs are exported (plus 未分配 if non-empty).
-// Cards are laid out flat in the column's display order; a module line is drawn
-// whenever consecutive cards belong to different modules.
+// HO columns are laid out 2–3 per row (side by side); within a column, cards are
+// stacked in the column's display order and a module line is drawn whenever
+// consecutive cards belong to different modules.
 
 import type { State, Status } from "./storage";
 
@@ -55,8 +56,9 @@ function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: n
 
 const W = 680;
 const PAD = 24;
-const CARD_W = (W - PAD * 2 - 16) / 3;
-const CARD_H = 76;
+const GAP = 12;
+const CARD_H = 72;
+const PHOTO = 48;
 const S = 2; // retina scale
 
 export async function exportBoardImage(state: State): Promise<boolean> {
@@ -124,23 +126,29 @@ export async function exportBoardImage(state: State): Promise<boolean> {
 
   const font = (size: number, weight = 400) => `${weight} ${size}px 'PingFang SC','Hiragino Sans GB',sans-serif`;
 
-  // measure height: walk rows; a module boundary costs 26px, each row CARD_H+10
+  // 2–3 HO columns per row, side by side
+  const perRow = cols.length >= 3 ? 3 : cols.length >= 2 ? 2 : 1;
+  const COL_W = (W - PAD * 2 - GAP * (perRow - 1)) / perRow;
+
+  // height of one HO column: header + stacked cards (+ module lines)
   const colHeight = (pcs: Entry[]): number => {
     let h = 38; // section header
-    let i = 0;
-    while (i < pcs.length) {
-      if (i === 0 || pcs[i].moduleName !== pcs[i - 1].moduleName) h += 26;
-      const boundary = pcs[i].moduleName;
-      let j = i;
-      while (j < pcs.length && j - i < 3 && pcs[j].moduleName === boundary) j++;
-      h += CARD_H + 10;
-      i = j;
+    for (let i = 0; i < pcs.length; i++) {
+      if (i === 0 || pcs[i].moduleName !== pcs[i - 1].moduleName) h += 24;
+      h += CARD_H + 8;
     }
-    return h + 8 + 18;
+    return h + 8;
   };
+
+  // group columns into rows and measure total height
+  const rows: { cols: Col[]; height: number }[] = [];
+  for (let i = 0; i < cols.length; i += perRow) {
+    const slice = cols.slice(i, i + perRow);
+    rows.push({ cols: slice, height: Math.max(...slice.map((c) => colHeight(c.pcs))) });
+  }
   let H = PAD;
-  for (const col of cols) H += colHeight(col.pcs);
-  H += PAD - 18;
+  for (const r of rows) H += r.height + 16;
+  H += PAD - 16;
 
   const canvas = document.createElement("canvas");
   canvas.width = W * S;
@@ -157,97 +165,98 @@ export async function exportBoardImage(state: State): Promise<boolean> {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  let y = PAD;
-  for (const col of cols) {
-    // section header
-    ctx.fillStyle = col.color;
-    rr(ctx, PAD, y, W - PAD * 2, 30, 9);
+  const drawModuleLine = (x: number, y: number, name: string, st: Status) => {
+    ctx.fillStyle = `hsl(${STATUS_DOT[st]})`;
+    ctx.beginPath();
+    ctx.arc(x + 5, y + 10, 3.5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "#fdfcf8";
-    ctx.font = font(15, 600);
-    ctx.textBaseline = "middle";
-    ctx.textAlign = "left";
-    ctx.fillText(col.title, PAD + 14, y + 16);
-    ctx.textAlign = "right";
-    ctx.font = font(12);
-    ctx.fillText(`${col.pcs.length} 个 PC`, W - PAD - 14, y + 16);
-    ctx.textAlign = "left";
-    y += 38;
+    ctx.fillStyle = fg;
+    ctx.font = font(12, 600);
+    ctx.fillText(name, x + 14, y + 11);
+    const nameW = ctx.measureText(name).width;
+    ctx.fillStyle = STATUS_TEXT_COLOR[st];
+    ctx.font = font(10);
+    ctx.fillText(`· ${STATUS_TEXT[st]}`, x + 14 + nameW + 5, y + 11);
+  };
 
-    // draw cards row by row; module line at boundaries
-    let i = 0;
-    while (i < col.pcs.length) {
-      if (i === 0 || col.pcs[i].moduleName !== col.pcs[i - 1].moduleName) {
-        const st = col.pcs[i].moduleStatus;
-        ctx.fillStyle = `hsl(${STATUS_DOT[st]})`;
-        ctx.beginPath();
-        ctx.arc(PAD + 6, y + 11, 4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = fg;
-        ctx.font = font(13, 600);
-        ctx.fillText(col.pcs[i].moduleName, PAD + 18, y + 12);
-        const nameW = ctx.measureText(col.pcs[i].moduleName).width;
-        ctx.fillStyle = STATUS_TEXT_COLOR[st];
-        ctx.font = font(11);
-        ctx.fillText(`· ${STATUS_TEXT[st]}`, PAD + 18 + nameW + 6, y + 12);
-        y += 26;
-      }
-      const boundary = col.pcs[i].moduleName;
-      let j = i;
-      while (j < col.pcs.length && j - i < 3 && col.pcs[j].moduleName === boundary) j++;
-      for (let k = i; k < j; k++) {
-        const p = col.pcs[k];
-        const cx = PAD + (k - i) * (CARD_W + 8);
-        const cy = y;
-        ctx.fillStyle = cardBg;
-        rr(ctx, cx, cy, CARD_W, CARD_H, 10);
-        ctx.fill();
-        ctx.strokeStyle = border;
-        ctx.lineWidth = 1;
-        rr(ctx, cx + 0.5, cy + 0.5, CARD_W - 1, CARD_H - 1, 10);
-        ctx.stroke();
+  const drawCard = (cx: number, cy: number, p: Entry) => {
+    ctx.fillStyle = cardBg;
+    rr(ctx, cx, cy, COL_W, CARD_H, 9);
+    ctx.fill();
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 1;
+    rr(ctx, cx + 0.5, cy + 0.5, COL_W - 1, CARD_H - 1, 9);
+    ctx.stroke();
 
-        const img = p.photo ? photos.get(p.key) : null;
-        const px = cx + 10;
-        const py = cy + (CARD_H - 52) / 2;
-        if (img) {
-          ctx.save();
-          rr(ctx, px, py, 52, 52, 8);
-          ctx.clip();
-          const scale = Math.max(52 / img.width, 52 / img.height);
-          const dw = img.width * scale;
-          const dh = img.height * scale;
-          ctx.drawImage(img, px + (52 - dw) / 2, py + (52 - dh) / 2, dw, dh);
-          ctx.restore();
-        } else {
-          ctx.fillStyle = `hsl(${cssVar("--secondary")})`;
-          rr(ctx, px, py, 52, 52, 8);
-          ctx.fill();
-          ctx.fillStyle = muted;
-          ctx.font = font(18, 600);
-          ctx.textAlign = "center";
-          ctx.fillText(p.name.slice(0, 1) || "?", px + 26, py + 28);
-          ctx.textAlign = "left";
-        }
-
-        ctx.fillStyle = fg;
-        ctx.font = font(14, 600);
-        const tx = px + 62;
-        const label = p.name.length > 9 ? p.name.slice(0, 9) + "…" : p.name;
-        ctx.fillText(label, tx, cy + 26);
-        ctx.font = font(11);
-        ctx.fillStyle = muted;
-        const sub = p.cardName
-          ? p.cardName.length > 14
-            ? p.cardName.slice(0, 14) + "…"
-            : p.cardName
-          : "未关联角色卡";
-        ctx.fillText(sub, tx, cy + 48);
-      }
-      y += CARD_H + 10;
-      i = j;
+    const img = p.photo ? photos.get(p.key) : null;
+    const px = cx + 8;
+    const py = cy + (CARD_H - PHOTO) / 2;
+    if (img) {
+      ctx.save();
+      rr(ctx, px, py, PHOTO, PHOTO, 7);
+      ctx.clip();
+      const scale = Math.max(PHOTO / img.width, PHOTO / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      ctx.drawImage(img, px + (PHOTO - dw) / 2, py + (PHOTO - dh) / 2, dw, dh);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = `hsl(${cssVar("--secondary")})`;
+      rr(ctx, px, py, PHOTO, PHOTO, 7);
+      ctx.fill();
+      ctx.fillStyle = muted;
+      ctx.font = font(16, 600);
+      ctx.textAlign = "center";
+      ctx.fillText(p.name.slice(0, 1) || "?", px + PHOTO / 2, py + PHOTO / 2 + 1);
+      ctx.textAlign = "left";
     }
-    y += 8 + 18;
+
+    ctx.fillStyle = fg;
+    ctx.font = font(13, 600);
+    const tx = px + PHOTO + 10;
+    const maxW = COL_W - (tx - cx) - 8;
+    let label = p.name;
+    while (label.length > 1 && ctx.measureText(label).width > maxW) label = label.slice(0, -1);
+    if (label !== p.name) label += "…";
+    ctx.fillText(label, tx, cy + 24);
+    ctx.font = font(10);
+    ctx.fillStyle = muted;
+    let sub = p.cardName ?? "未关联角色卡";
+    while (sub.length > 1 && ctx.measureText(sub).width > maxW) sub = sub.slice(0, -1);
+    if (sub !== (p.cardName ?? "未关联角色卡")) sub += "…";
+    ctx.fillText(sub, tx, cy + 44);
+  };
+
+  let y = PAD;
+  for (const row of rows) {
+    row.cols.forEach((col, k) => {
+      const x = PAD + k * (COL_W + GAP);
+      let cy = y;
+      // section header
+      ctx.fillStyle = col.color;
+      rr(ctx, x, cy, COL_W, 30, 9);
+      ctx.fill();
+      ctx.fillStyle = "#fdfcf8";
+      ctx.font = font(14, 600);
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+      ctx.fillText(col.title, x + 12, cy + 16);
+      ctx.textAlign = "right";
+      ctx.font = font(11);
+      ctx.fillText(`${col.pcs.length} 个 PC`, x + COL_W - 10, cy + 16);
+      ctx.textAlign = "left";
+      cy += 38;
+
+      for (let i = 0; i < col.pcs.length; i++) {
+        if (i === 0 || col.pcs[i].moduleName !== col.pcs[i - 1].moduleName) {
+          drawModuleLine(x + 2, cy, col.pcs[i].moduleName, col.pcs[i].moduleStatus);
+          cy += 24;
+        }
+        drawCard(x, cy, col.pcs[i]);
+        cy += CARD_H + 8;
+      }
+    });
+    y += row.height + 16;
   }
 
   // footer
