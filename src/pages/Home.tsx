@@ -29,6 +29,8 @@ import {
   Sun,
   Moon,
   ImageDown,
+  FileDown,
+  FileUp,
 } from "lucide-react";
 import {
   type Status,
@@ -53,6 +55,8 @@ import {
   setCard,
   setPcAttrs,
   getCardArrayBuffer,
+  buildSnapshot,
+  importSnapshot,
 } from "@/lib/storage";
 import { THEMES, applyTheme, getTheme, getMode, setMode, type ThemeName } from "@/lib/theme";
 import { exportBoardImage } from "@/lib/exportImage";
@@ -97,6 +101,7 @@ export default function Home() {
   const [dark, setDark] = useState(getMode() === "dark");
   const [exporting, setExporting] = useState(false);
   const msgTimer = useRef<number | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   const say = useCallback((text: string, kind: "error" | "info" = "info") => {
     if (msgTimer.current) window.clearTimeout(msgTimer.current);
@@ -139,6 +144,28 @@ export default function Home() {
       say(`导出失败：${(e as Error).message}`, "error");
     } finally {
       setExporting(false);
+    }
+  }
+
+  function onExportData() {
+    const json = buildSnapshot(state);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `TRPG-PC数据-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    say("已导出数据文件，可导入小组件或其他浏览器");
+  }
+
+  async function onImportData(file: File) {
+    try {
+      await importSnapshot(await file.text());
+      await refresh();
+      say("已导入数据");
+    } catch (e) {
+      say(`导入失败：${(e as Error).message}`, "error");
     }
   }
 
@@ -221,6 +248,37 @@ export default function Home() {
             >
               <ImageDown className="h-4 w-4" />
             </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              aria-label="导出数据"
+              title="导出数据文件（可导入小组件或其他浏览器）"
+              onClick={onExportData}
+            >
+              <FileDown className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              aria-label="导入数据"
+              title="从数据文件导入（会覆盖当前数据）"
+              onClick={() => importFileRef.current?.click()}
+            >
+              <FileUp className="h-4 w-4" />
+            </Button>
+            <input
+              ref={importFileRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void onImportData(f);
+                e.target.value = "";
+              }}
+            />
             <ThemePicker />
             {busy && <span className="text-xs text-muted-foreground">保存中…</span>}
           </div>

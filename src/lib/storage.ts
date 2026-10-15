@@ -409,3 +409,33 @@ export async function getCardArrayBuffer(pcId: string): Promise<ArrayBuffer> {
   }
   throw new Error("未找到角色卡文件");
 }
+
+// ---- data snapshot export / import (for widget sync & moving between browsers) ----
+
+/** Serialize state to a JSON snapshot. Card binaries stay behind (they live in IndexedDB);
+ *  card metadata (name/size) is kept so the UI still shows what is attached. */
+export function buildSnapshot(state: State): string {
+  const clone: State = JSON.parse(JSON.stringify(state));
+  for (const m of clone.modules) {
+    for (const p of m.pcs) {
+      if (p.card) delete p.card.data;
+    }
+  }
+  clone.updatedAt = new Date().toISOString();
+  return JSON.stringify(clone);
+}
+
+/** Replace the whole state from a snapshot JSON string. Local mode only. */
+export async function importSnapshot(json: string): Promise<void> {
+  if ((await detectMode()) === "server") {
+    throw new Error("网页版(静态托管)中才能直接导入数据文件");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error("不是有效的 JSON 文件");
+  }
+  const s = migrate(parsed);
+  saveLocal(s);
+}
