@@ -185,13 +185,26 @@ export async function reorderHos(hoIds: string[]): Promise<void> {
 
 /* ---------- modules ---------- */
 
-export async function addModule(name: string, status: Status, hoId?: string | null): Promise<void> {
+export async function addModule(name: string, status: Status, hoId?: string | null, pcName?: string): Promise<void> {
   if ((await detectMode()) === "server") {
     await serverReq("/api/modules", { method: "POST", body: JSON.stringify({ name, status, hoId }) });
+    if (pcName?.trim()) {
+      const st = await serverReq<State>("/api/state");
+      const m = [...st.modules].reverse().find((x) => x.name === name);
+      if (m) {
+        await serverReq(`/api/modules/${m.id}/pcs`, { method: "POST", body: JSON.stringify({ name: pcName.trim(), hoId: hoId ?? null }) });
+      }
+    }
     return;
   }
   const s = loadLocal();
-  s.modules.push({ id: uid("m"), name, status, pcs: [], defaultHoId: hoId ?? null });
+  const m: Module = { id: uid("m"), name, status, pcs: [], defaultHoId: hoId ?? null };
+  if (pcName?.trim()) {
+    const pc = { id: uid("p"), name: pcName.trim(), photo: null, card: null, hoId: hoId ?? null };
+    m.pcs.push(pc);
+    s.pcOrder.push(pc.id);
+  }
+  s.modules.push(m);
   saveLocal(s);
 }
 

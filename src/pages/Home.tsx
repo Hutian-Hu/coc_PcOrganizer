@@ -97,6 +97,7 @@ export default function Home() {
   const [preview, setPreview] = useState<{ pcName: string; book: Book } | null>(null);
   const [crop, setCrop] = useState<{ moduleId: string; pcId: string; file: File } | null>(null);
   const [newName, setNewName] = useState("");
+  const [newPcName, setNewPcName] = useState("");
   const [newStatus, setNewStatus] = useState<Status>("planned");
   const [newHoId, setNewHoId] = useState<string>("");
   const [dark, setDark] = useState(getMode() === "dark");
@@ -318,14 +319,27 @@ export default function Home() {
             e.preventDefault();
             const name = newName.trim();
             if (!name) return;
+            const pc = newPcName.trim();
             setNewName("");
-            run(() => addModule(name, newStatus, newHoId || null), `已添加模组「${name}」`);
+            setNewPcName("");
+            run(
+              () => addModule(name, newStatus, newHoId || null, pc),
+              pc ? `已添加模组「${name}」和 PC「${pc}」` : `已添加模组「${name}」`
+            );
           }}
         >
           <Input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="输入模组名称"
+            placeholder="模组名称"
+            aria-label="模组名称"
+            className="flex-1 bg-background/60"
+          />
+          <Input
+            value={newPcName}
+            onChange={(e) => setNewPcName(e.target.value)}
+            placeholder="PC 名（可选）"
+            aria-label="PC 名（可选）"
             className="flex-1 bg-background/60"
           />
           <div className="flex items-center gap-1 flex-wrap" role="tablist" aria-label="默认 HO 位">
