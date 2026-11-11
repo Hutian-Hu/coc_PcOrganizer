@@ -98,6 +98,7 @@ export default function Home() {
   const [crop, setCrop] = useState<{ moduleId: string; pcId: string; file: File } | null>(null);
   const [newName, setNewName] = useState("");
   const [newStatus, setNewStatus] = useState<Status>("planned");
+  const [newHoId, setNewHoId] = useState<string>("");
   const [dark, setDark] = useState(getMode() === "dark");
   const [exporting, setExporting] = useState(false);
   const msgTimer = useRef<number | null>(null);
@@ -318,7 +319,7 @@ export default function Home() {
             const name = newName.trim();
             if (!name) return;
             setNewName("");
-            run(() => addModule(name, newStatus), `已添加模组「${name}」`);
+            run(() => addModule(name, newStatus, newHoId || null), `已添加模组「${name}」`);
           }}
         >
           <Input
@@ -327,6 +328,37 @@ export default function Home() {
             placeholder="输入模组名称"
             className="flex-1 bg-background/60"
           />
+          <div className="flex items-center gap-1 flex-wrap" role="tablist" aria-label="默认 HO 位">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={newHoId === ""}
+              className={`px-2.5 py-1 text-xs border transition-colors ${
+                newHoId === ""
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background/60 text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => setNewHoId("")}
+            >
+              无
+            </button>
+            {state.hos.map((h) => (
+              <button
+                key={h.id}
+                type="button"
+                role="tab"
+                aria-selected={newHoId === h.id}
+                className={`px-2.5 py-1 text-xs border transition-colors ${
+                  newHoId === h.id
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background/60 text-muted-foreground hover:text-foreground"
+                }`}
+                onClick={() => setNewHoId(h.id)}
+              >
+                {h.name}
+              </button>
+            ))}
+          </div>
           <Select value={newStatus} onValueChange={(v) => setNewStatus(v as Status)}>
             <SelectTrigger className="w-28 bg-background/60">
               <SelectValue />
@@ -811,8 +843,6 @@ type DragInfo = DragPayload & {
   overBeforePcId: string | null; // 插入到该 PC 之前（null = 放到该栏末尾）
 };
 
-const UNASSIGNED = "__unassigned__";
-
 // 按全局顺序表排序（缺失的排到最后，保持相对稳定）
 function byOrder<T extends { id: string }>(order: string[]) {
   const rank = new Map(order.map((id, i) => [id, i]));
@@ -887,7 +917,7 @@ function HoBoard({
     for (const [key, el] of colRefs.current) {
       const r = el.getBoundingClientRect();
       if (x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 8 && y <= r.bottom + 64) {
-        overHo = key === UNASSIGNED ? null : key;
+        overHo = key;
         break;
       }
     }
@@ -1001,25 +1031,6 @@ function HoBoard({
             onNativeDrop={onNativeDrop}
           />
         ))}
-        <HoColumn
-          key="unassigned"
-          ho={null}
-          colIndex={hos.length}
-          colKey={UNASSIGNED}
-          modules={modules}
-          pcOrder={pcOrder}
-          busy={busy}
-          run={run}
-          onViewPhoto={onViewPhoto}
-          onPreview={onPreview}
-          onCrop={onCrop}
-          drag={drag}
-          registerCol={registerCol}
-          registerPc={registerPc}
-          onDragStart={beginDrag}
-          onNativeDragStart={onNativeDragStart}
-          onNativeDrop={onNativeDrop}
-        />
         <div className="shrink-0 w-40">
           <AddHoButton busy={busy} run={run} hos={hos} />
         </div>
@@ -1346,7 +1357,10 @@ function ModuleRow({
           const n = pcName.trim();
           if (!n) return;
           setPcName("");
-          void run(() => addPc(m.id, n), `已添加 PC「${n}」（在未分配栏）`);
+          void run(
+            () => addPc(m.id, n),
+            `已添加 PC「${n}」（在${hos.find((h) => h.id === m.defaultHoId)?.name ?? "未分配"}栏）`
+          );
         }}
       >
         <Input

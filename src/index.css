@@ -140,3 +140,10 @@
     height: 20px;
   }
 }
+
+/* 全局去掉圆角 */
+*,
+*::before,
+*::after {
+  border-radius: 0 !important;
+}

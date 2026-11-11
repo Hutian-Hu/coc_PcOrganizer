@@ -10,7 +10,7 @@ export type CardMeta = { name: string; sizeBytes: number; data?: string };
 export type Ho = { id: string; name: string };
 export type PcAttr = { label: string; value: number; half: number; fifth: number };
 export type Pc = { id: string; name: string; photo: string | null; card: CardMeta | null; hoId: string | null; attrs?: PcAttr[] | null };
-export type Module = { id: string; name: string; status: Status; pcs: Pc[] };
+export type Module = { id: string; name: string; status: Status; pcs: Pc[]; defaultHoId?: string | null };
 export type State = { hos: Ho[]; modules: Module[]; pcOrder: string[]; updatedAt: string };
 
 type Mode = "server" | "local";
@@ -67,6 +67,7 @@ function migrate(s: any): State {
   const ids = new Set(s.hos.map((h: Ho) => h.id));
   for (const m of s.modules) {
     for (const p of m.pcs) if (p.hoId && !ids.has(p.hoId)) p.hoId = null;
+    if (m.defaultHoId && !ids.has(m.defaultHoId)) m.defaultHoId = null;
   }
   // 全局显示顺序：看板栏目按它渲染，与模组归属解耦；缺省按现有模组顺序生成
   const all = s.modules.flatMap((m: Module) => m.pcs.map((p: Pc) => p.id));
@@ -184,13 +185,13 @@ export async function reorderHos(hoIds: string[]): Promise<void> {
 
 /* ---------- modules ---------- */
 
-export async function addModule(name: string, status: Status): Promise<void> {
+export async function addModule(name: string, status: Status, hoId?: string | null): Promise<void> {
   if ((await detectMode()) === "server") {
-    await serverReq("/api/modules", { method: "POST", body: JSON.stringify({ name, status }) });
+    await serverReq("/api/modules", { method: "POST", body: JSON.stringify({ name, status, hoId }) });
     return;
   }
   const s = loadLocal();
-  s.modules.push({ id: uid("m"), name, status, pcs: [] });
+  s.modules.push({ id: uid("m"), name, status, pcs: [], defaultHoId: hoId ?? null });
   saveLocal(s);
 }
 
@@ -240,7 +241,7 @@ export async function addPc(moduleId: string, name: string): Promise<void> {
   const s = loadLocal();
   const m = findModule(s, moduleId);
   if (m) {
-    const pc = { id: uid("p"), name, photo: null, card: null, hoId: null };
+    const pc = { id: uid("p"), name, photo: null, card: null, hoId: m.defaultHoId ?? null };
     m.pcs.push(pc);
     s.pcOrder.push(pc.id);
   }
