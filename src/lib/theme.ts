@@ -3,7 +3,7 @@
 // with a separate dark palette per theme.
 // Choices persist in localStorage and are applied on load (see bottom).
 
-export type ThemeName = "oat" | "sage" | "mist" | "rose" | "clay" | "sunset";
+export type ThemeName = "oat" | "sage" | "mist" | "rose" | "clay" | "sunset" | "neo";
 export type Mode = "light" | "dark";
 
 type VarMap = Record<string, string>;
@@ -209,9 +209,52 @@ export const THEMES: Record<ThemeName, ThemeDef> = {
     darkVars: darkVariant({ fg: "262 12% 14%", primary: "24 58% 64%" }),
     hoColors: ["40 52% 55%", "22 55% 58%", "350 20% 60%", "245 14% 54%"],
   },
+  neo: {
+    label: "前卫",
+    swatch: ["258 90% 60%", "72 100% 50%"],
+    vars: {
+      "--background": "240 12% 96%",
+      "--foreground": "240 12% 10%",
+      "--card": "0 0% 100%",
+      "--card-foreground": "240 12% 10%",
+      "--popover": "0 0% 100%",
+      "--popover-foreground": "240 12% 10%",
+      "--primary": "258 90% 60%",
+      "--primary-foreground": "0 0% 100%",
+      "--secondary": "240 8% 92%",
+      "--secondary-foreground": "240 10% 18%",
+      "--muted": "240 8% 93%",
+      "--muted-foreground": "240 6% 46%",
+      "--accent": "72 100% 50%",
+      "--accent-foreground": "240 20% 8%",
+      "--border": "240 8% 86%",
+      "--input": "240 8% 86%",
+      "--ring": "258 90% 60%",
+    },
+    darkVars: {
+      "--background": "240 12% 7%",
+      "--foreground": "240 10% 94%",
+      "--card": "240 10% 10%",
+      "--card-foreground": "240 10% 94%",
+      "--popover": "240 10% 10%",
+      "--popover-foreground": "240 10% 94%",
+      "--primary": "262 95% 68%",
+      "--primary-foreground": "0 0% 100%",
+      "--secondary": "240 7% 16%",
+      "--secondary-foreground": "240 10% 92%",
+      "--muted": "240 7% 15%",
+      "--muted-foreground": "240 6% 58%",
+      "--accent": "72 100% 55%",
+      "--accent-foreground": "240 20% 8%",
+      "--border": "240 7% 20%",
+      "--input": "240 7% 20%",
+      "--ring": "262 95% 68%",
+    },
+    hoColors: ["258 88% 62%", "190 95% 42%", "72 100% 40%", "330 90% 55%"],
+  },
 };
 
-const THEME_KEY = "coc-web-theme";
+const THEME_KEY = "coc-web-theme-v2";
 const MODE_KEY = "coc-web-mode";
 
 export function getTheme(): ThemeName {
@@ -221,7 +264,7 @@ export function getTheme(): ThemeName {
   } catch {
     /* ignore */
   }
-  return "oat";
+  return "neo";
 }
 
 export function getMode(): Mode {

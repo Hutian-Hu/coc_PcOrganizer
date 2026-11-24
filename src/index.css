@@ -34,12 +34,12 @@
     --sidebar-border: 40 11% 81%;
     --sidebar-ring: 96 12% 47%;
 
-    /* 语义色 */
-    --morandi-planned: 9 20% 66%;      /* 藕粉（卫星中） */
-    --morandi-ongoing: 96 14% 45%;     /* 灰绿（进行中） */
-    --morandi-paused: 205 16% 66%;     /* 灰蓝（暂停中） */
-    --morandi-disbanded: 285 9% 60%;   /* 灰紫（已散桌） */
-    --morandi-finished: 40 6% 58%;     /* 暖灰（已结团） */
+    /* 语义色（状态 color tag） */
+    --morandi-planned: 200 95% 45%;     /* 电蓝（卫星中） */
+    --morandi-ongoing: 150 95% 35%;     /* 鲜绿（进行中） */
+    --morandi-paused: 38 100% 48%;      /* 琥珀（暂停中） */
+    --morandi-disbanded: 350 90% 55%;   /* 玫红（已散桌） */
+    --morandi-finished: 220 12% 50%;    /* 冷灰（已结团） */
   }
 
   .dark {
@@ -84,26 +84,47 @@
 }
 
 @layer components {
-  /* 状态语义色（莫兰迪） */
+  /* 状态 color tag：色点 + 同色系浅底 + 饱和文字 */
+  .st-planned,
+  .st-ongoing,
+  .st-paused,
+  .st-disbanded,
+  .st-finished {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+  }
+  .st-planned::before,
+  .st-ongoing::before,
+  .st-paused::before,
+  .st-disbanded::before,
+  .st-finished::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    flex: none;
+    background-color: currentcolor;
+  }
   .st-planned {
-    background-color: hsl(var(--morandi-planned) / 0.22);
-    color: hsl(9 24% 38%);
+    background-color: hsl(var(--morandi-planned) / 0.14);
+    color: hsl(var(--morandi-planned));
   }
   .st-ongoing {
-    background-color: hsl(var(--morandi-ongoing) / 0.2);
-    color: hsl(96 20% 30%);
+    background-color: hsl(var(--morandi-ongoing) / 0.14);
+    color: hsl(var(--morandi-ongoing));
   }
   .st-paused {
-    background-color: hsl(var(--morandi-paused) / 0.22);
-    color: hsl(205 22% 38%);
+    background-color: hsl(var(--morandi-paused) / 0.16);
+    color: hsl(32 95% 40%);
   }
   .st-disbanded {
-    background-color: hsl(var(--morandi-disbanded) / 0.2);
-    color: hsl(285 12% 38%);
+    background-color: hsl(var(--morandi-disbanded) / 0.14);
+    color: hsl(var(--morandi-disbanded));
   }
   .st-finished {
-    background-color: hsl(var(--morandi-finished) / 0.2);
-    color: hsl(40 8% 42%);
+    background-color: hsl(var(--morandi-finished) / 0.16);
+    color: hsl(var(--morandi-finished));
   }
   .dot-planned { background-color: hsl(var(--morandi-planned)); }
   .dot-ongoing { background-color: hsl(var(--morandi-ongoing)); }
