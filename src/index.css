@@ -84,7 +84,7 @@
 }
 
 @layer components {
-  /* 状态 color tag：色点 + 同色系浅底 + 饱和文字 */
+  /* 状态 color tag：实心色块标签 */
   .st-planned,
   .st-ongoing,
   .st-paused,
@@ -92,39 +92,27 @@
   .st-finished {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
     font-weight: 500;
   }
-  .st-planned::before,
-  .st-ongoing::before,
-  .st-paused::before,
-  .st-disbanded::before,
-  .st-finished::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    flex: none;
-    background-color: currentcolor;
-  }
   .st-planned {
-    background-color: hsl(var(--morandi-planned) / 0.14);
-    color: hsl(var(--morandi-planned));
+    background-color: hsl(var(--morandi-planned));
+    color: #ffffff;
   }
   .st-ongoing {
-    background-color: hsl(var(--morandi-ongoing) / 0.14);
-    color: hsl(var(--morandi-ongoing));
+    background-color: hsl(var(--morandi-ongoing));
+    color: #ffffff;
   }
   .st-paused {
-    background-color: hsl(var(--morandi-paused) / 0.16);
-    color: hsl(32 95% 40%);
+    background-color: hsl(var(--morandi-paused));
+    color: hsl(32 55% 14%);
   }
   .st-disbanded {
-    background-color: hsl(var(--morandi-disbanded) / 0.14);
-    color: hsl(var(--morandi-disbanded));
+    background-color: hsl(var(--morandi-disbanded));
+    color: #ffffff;
   }
   .st-finished {
-    background-color: hsl(var(--morandi-finished) / 0.16);
-    color: hsl(var(--morandi-finished));
+    background-color: hsl(var(--morandi-finished));
+    color: #ffffff;
   }
   .dot-planned { background-color: hsl(var(--morandi-planned)); }
   .dot-ongoing { background-color: hsl(var(--morandi-ongoing)); }

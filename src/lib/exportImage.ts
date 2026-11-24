@@ -15,19 +15,19 @@ const STATUS_TEXT: Record<Status, string> = {
 };
 
 const STATUS_DOT: Record<Status, string> = {
-  planned: "9 20% 66%",
-  ongoing: "96 14% 45%",
-  paused: "205 16% 66%",
-  disbanded: "285 9% 60%",
-  finished: "40 6% 58%",
+  planned: "200 95% 45%",
+  ongoing: "150 95% 35%",
+  paused: "38 100% 48%",
+  disbanded: "350 90% 55%",
+  finished: "220 12% 50%",
 };
 
 const STATUS_TEXT_COLOR: Record<Status, string> = {
-  planned: "#8f4a3e",
-  ongoing: "#3f5a37",
-  paused: "#3d5566",
-  disbanded: "#574a63",
-  finished: "#5f584c",
+  planned: "hsl(200 95% 40%)",
+  ongoing: "hsl(150 95% 30%)",
+  paused: "hsl(32 95% 38%)",
+  disbanded: "hsl(350 90% 48%)",
+  finished: "hsl(220 12% 45%)",
 };
 
 function cssVar(name: string): string {

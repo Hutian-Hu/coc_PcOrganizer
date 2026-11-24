@@ -31,6 +31,7 @@ import {
   ImageDown,
   FileDown,
   FileUp,
+  CircleHelp,
 } from "lucide-react";
 import {
   type Status,
@@ -100,6 +101,7 @@ export default function Home() {
   const [newPcName, setNewPcName] = useState("");
   const [newStatus, setNewStatus] = useState<Status>("planned");
   const [newHoId, setNewHoId] = useState<string>("");
+  const [showHelp, setShowHelp] = useState(false);
   const [dark, setDark] = useState(getMode() === "dark");
   const [exporting, setExporting] = useState(false);
   const msgTimer = useRef<number | null>(null);
@@ -282,9 +284,35 @@ export default function Home() {
               }}
             />
             <ThemePicker />
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              aria-label="使用说明"
+              title="使用说明"
+              aria-pressed={showHelp}
+              onClick={() => setShowHelp((v) => !v)}
+            >
+              <CircleHelp className="h-4 w-4" />
+            </Button>
             {busy && <span className="text-xs text-muted-foreground">保存中…</span>}
           </div>
         </header>
+
+        {showHelp && (
+          <section className="bg-card border rounded-xl p-4 text-sm leading-6 shadow-sm">
+            <h2 className="font-medium mb-2">使用说明</h2>
+            <ol className="list-decimal pl-5 space-y-1 text-muted-foreground">
+              <li>添加模组：上方表单左框填模组名、右框填首个 PC 名（可留空），选好 HO 位选项卡和状态后点「添加模组」。</li>
+              <li>添加 PC：下方「模组管理」里对应模组行的右侧输入 PC 名，点 PC 按钮；新 PC 会自动进入建模组时选的 HO 位（未选则为未分配，不出现在看板）。</li>
+              <li>看板拖动：把 PC 卡片拖到目标 HO 栏目即可换栏；栏目内拖动或用卡片上的 ↑↓ 箭头调先后顺序，不会改变 PC 所属模组。</li>
+              <li>PC 资料：点卡片上的图标可上传头像（支持裁剪）和角色卡（.xlsx），属性与幸运会自动读取；点头像可放大查看。</li>
+              <li>模组管理：点模组名可重命名，点右侧彩色状态标签切换状态（卫星中/进行中/暂停中/已散桌/已结团）；点左侧箭头展开 PC 详情与角色卡预览。</li>
+              <li>HO 栏目：点栏目名可重命名，拖动手柄可排序，点 × 删除（栏内 PC 回到未分配）。</li>
+              <li>顶栏工具：导出长图、导出/导入数据（JSON 文件，可同步到 Kimi 小组件或换浏览器）、切换配色与深色模式。数据只保存在本浏览器，清理浏览器数据前请先导出备份。</li>
+            </ol>
+          </section>
+        )}
 
         {msg && (
           <div
@@ -1310,7 +1338,6 @@ function ModuleRow({
       >
         {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
       </button>
-      <span className={`h-2 w-2 rounded-full shrink-0 dot-${m.status}`} />
       {renaming ? (
         <form
           className="flex-1 flex gap-2 min-w-0"
