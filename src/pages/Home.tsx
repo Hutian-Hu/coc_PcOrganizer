@@ -300,16 +300,26 @@ export default function Home() {
         </header>
 
         {showHelp && (
-          <section className="bg-card border rounded-xl p-4 text-sm leading-6 shadow-sm">
-            <h2 className="font-medium mb-2">使用说明</h2>
-            <ol className="list-decimal pl-5 space-y-1 text-muted-foreground">
-              <li>添加模组：上方表单左框填模组名、右框填首个 PC 名（可留空），选好 HO 位选项卡和状态后点「添加模组」。</li>
-              <li>添加 PC：下方「模组管理」里对应模组行的右侧输入 PC 名，点 PC 按钮；新 PC 会自动进入建模组时选的 HO 位（未选则为未分配，不出现在看板）。</li>
-              <li>看板拖动：把 PC 卡片拖到目标 HO 栏目即可换栏；栏目内拖动或用卡片上的 ↑↓ 箭头调先后顺序，不会改变 PC 所属模组。</li>
-              <li>PC 资料：点卡片上的图标可上传头像（支持裁剪）和角色卡（.xlsx），属性与幸运会自动读取；点头像可放大查看。</li>
-              <li>模组管理：点模组名可重命名，点右侧彩色状态标签切换状态（卫星中/进行中/暂停中/已散桌/已结团）；点左侧箭头展开 PC 详情与角色卡预览。</li>
-              <li>HO 栏目：点栏目名可重命名，拖动手柄可排序，点 × 删除（栏内 PC 回到未分配）。</li>
-              <li>顶栏工具：导出长图、导出/导入数据（JSON 文件，可同步到 Kimi 小组件或换浏览器）、切换配色与深色模式。数据只保存在本浏览器，清理浏览器数据前请先导出备份。</li>
+          <section className="bg-card border rounded-xl p-4 shadow-sm">
+            <h2 className="font-medium mb-3">使用说明</h2>
+            <ol className="steps">
+              {[
+                ["创建模组", "上方表单左框填模组名、右框填首个 PC 名（可留空），选好 HO 位选项卡和状态，点「添加模组」。"],
+                ["添加 PC", "在下方「模组管理」对应模组行的右侧输入 PC 名，点 PC 按钮。新 PC 自动进入建模组时选的 HO 栏。"],
+                ["整理看板", "拖动 PC 卡片到目标 HO 栏目即可换栏；栏目内拖动或用卡片上的 ↑↓ 箭头调整先后顺序（不会改变 PC 所属模组）。"],
+                ["完善资料", "在 PC 卡片上上传头像（支持裁剪放大）和角色卡（.xlsx），九项属性与幸运会自动读取；点头像可放大查看。"],
+                ["管理模组", "模组名点击可重命名；点右侧彩色状态标签切换状态——看板 PC 卡片上的状态标签也能直接点击切换。"],
+                ["管理栏目", "点栏目名可重命名，拖左侧手柄调整栏目顺序，点 × 删除栏目（栏内 PC 回到未分配）。"],
+                ["备份与同步", "顶栏可导出长图、导出/导入数据（JSON 文件，用于同步到 Kimi 小组件或迁移到其他浏览器）。数据只保存在本浏览器，清理前请先导出备份。"],
+              ].map(([t, d], i) => (
+                <li key={t}>
+                  <span className="n">{i + 1}</span>
+                  <span>
+                    <span className="t">{t}</span>
+                    <span className="d">{d}</span>
+                  </span>
+                </li>
+              ))}
             </ol>
           </section>
         )}
@@ -1211,10 +1221,6 @@ function HoColumn({
       >
         {ho ? (
           <>
-            <span
-              className="h-2 w-2 rounded-full shrink-0"
-              style={{ background: `hsl(${hoVar})` }}
-            />
             <button
               type="button"
               className="text-muted-foreground/50 hover:text-foreground cursor-grab active:cursor-grabbing touch-none shrink-0"
@@ -1672,9 +1678,19 @@ function PcEntry({
             </button>
           )}
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0 mt-0.5">
-            <span className={`h-1.5 w-1.5 rounded-full shrink-0 dot-${m.status}`} />
             <span className="truncate">{m.name}</span>
-            <span className={`shrink-0 rounded px-1 py-px text-[9px] st-${m.status}`}>{STATUS[m.status]}</span>
+            <button
+              type="button"
+              className={`shrink-0 rounded px-1 py-px text-[9px] st-${m.status} disabled:opacity-50`}
+              title="点击切换模组状态"
+              disabled={busy}
+              onClick={() => {
+                const next = ORDER[(ORDER.indexOf(m.status) + 1) % ORDER.length];
+                void run(() => setModuleStatus(m.id, next), `已切换为「${STATUS[next]}」`);
+              }}
+            >
+              {STATUS[m.status]}
+            </button>
           </div>
           {p.card && (
             <button
@@ -1693,7 +1709,7 @@ function PcEntry({
         </div>
       </div>
 
-      <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover/pc:opacity-100 focus-within:opacity-100 transition-opacity">
+      <div className="flex items-center gap-0.5 flex-wrap opacity-100 sm:opacity-0 sm:group-hover/pc:opacity-100 focus-within:opacity-100 transition-opacity">
         <button
           type="button"
           className="h-6 w-6 inline-flex items-center justify-center text-muted-foreground/60 hover:text-foreground cursor-grab active:cursor-grabbing touch-none shrink-0"

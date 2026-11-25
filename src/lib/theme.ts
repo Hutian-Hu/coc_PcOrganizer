@@ -1,9 +1,8 @@
-// Website color themes (Morandi-inspired, low saturation) + dark mode.
-// A theme overrides a fixed set of CSS custom properties on :root,
-// with a separate dark palette per theme.
+// Website color themes — five avant-garde palettes + dark mode per theme.
+// A theme overrides a fixed set of CSS custom properties on :root.
 // Choices persist in localStorage and are applied on load (see bottom).
 
-export type ThemeName = "oat" | "sage" | "mist" | "rose" | "clay" | "sunset" | "neo";
+export type ThemeName = "volt" | "neon" | "onyx" | "aurora" | "heat";
 export type Mode = "light" | "dark";
 
 type VarMap = Record<string, string>;
@@ -36,225 +35,199 @@ const BASE_VARS = [
   "--ring",
 ] as const;
 
-function darkVariant(hue: { fg: string; primary: string }): VarMap {
+function palette(o: {
+  bg: string;
+  fg: string;
+  card?: string;
+  popover?: string;
+  primary: string;
+  pf?: string;
+  secondary?: string;
+  sf?: string;
+  muted?: string;
+  mf?: string;
+  accent: string;
+  af?: string;
+  border?: string;
+}): VarMap {
   return {
-    "--background": hue.fg,
-    "--foreground": "40 15% 88%",
-    "--card": hue.fg,
-    "--card-foreground": "40 15% 88%",
-    "--popover": hue.fg,
-    "--popover-foreground": "40 15% 88%",
-    "--primary": hue.primary,
-    "--primary-foreground": "40 30% 12%",
-    "--secondary": "40 7% 24%",
-    "--secondary-foreground": "40 15% 88%",
-    "--muted": "40 7% 22%",
-    "--muted-foreground": "40 6% 62%",
-    "--accent": "36 8% 26%",
-    "--accent-foreground": "40 15% 88%",
-    "--border": "40 7% 28%",
-    "--input": "40 7% 28%",
-    "--ring": hue.primary,
+    "--background": o.bg,
+    "--foreground": o.fg,
+    "--card": o.card ?? o.bg,
+    "--card-foreground": o.fg,
+    "--popover": o.popover ?? o.card ?? o.bg,
+    "--popover-foreground": o.fg,
+    "--primary": o.primary,
+    "--primary-foreground": o.pf ?? "0 0% 100%",
+    "--secondary": o.secondary ?? o.fg,
+    "--secondary-foreground": o.sf ?? o.bg,
+    "--muted": o.muted ?? o.secondary ?? o.fg,
+    "--muted-foreground": o.mf ?? o.fg,
+    "--accent": o.accent,
+    "--accent-foreground": o.af ?? "240 20% 8%",
+    "--border": o.border ?? o.fg,
+    "--input": o.border ?? o.fg,
+    "--ring": o.primary,
   };
 }
 
 export const THEMES: Record<ThemeName, ThemeDef> = {
-  oat: {
-    label: "燕麦米",
-    swatch: ["40 19% 93%", "96 12% 47%"],
-    vars: {
-      "--background": "40 19% 93%",
-      "--foreground": "45 7% 28%",
-      "--card": "40 22% 95.5%",
-      "--card-foreground": "45 7% 28%",
-      "--popover": "40 20% 96.5%",
-      "--popover-foreground": "45 7% 28%",
-      "--primary": "96 12% 47%",
-      "--primary-foreground": "40 25% 96%",
-      "--secondary": "40 14% 88%",
-      "--secondary-foreground": "45 9% 32%",
-      "--muted": "40 13% 89%",
-      "--muted-foreground": "40 5% 48%",
-      "--accent": "36 15% 86%",
-      "--accent-foreground": "45 9% 32%",
-      "--border": "40 11% 81%",
-      "--input": "40 11% 81%",
-      "--ring": "96 12% 47%",
-    },
-    darkVars: darkVariant({ fg: "40 8% 14%", primary: "96 14% 62%" }),
-    hoColors: ["96 16% 58%", "205 18% 60%", "350 16% 62%", "36 22% 60%"],
-  },
-  sage: {
-    label: "鼠尾草",
-    swatch: ["90 12% 92%", "96 18% 40%"],
-    vars: {
-      "--background": "90 12% 92%",
-      "--foreground": "100 8% 25%",
-      "--card": "90 14% 94.5%",
-      "--card-foreground": "100 8% 25%",
-      "--popover": "90 14% 95.5%",
-      "--popover-foreground": "100 8% 25%",
-      "--primary": "96 18% 40%",
-      "--primary-foreground": "90 20% 96%",
-      "--secondary": "90 10% 86%",
-      "--secondary-foreground": "100 8% 28%",
-      "--muted": "90 10% 87%",
-      "--muted-foreground": "90 5% 46%",
-      "--accent": "80 12% 84%",
-      "--accent-foreground": "100 8% 28%",
-      "--border": "90 8% 79%",
-      "--input": "90 8% 79%",
-      "--ring": "96 18% 40%",
-    },
-    darkVars: darkVariant({ fg: "100 8% 13%", primary: "96 16% 60%" }),
-    hoColors: ["96 20% 42%", "205 16% 52%", "340 12% 58%", "45 20% 52%"],
-  },
-  mist: {
-    label: "雾蓝",
-    swatch: ["210 16% 93%", "205 20% 52%"],
-    vars: {
-      "--background": "210 16% 93%",
-      "--foreground": "210 10% 28%",
-      "--card": "210 18% 95%",
-      "--card-foreground": "210 10% 28%",
-      "--popover": "210 18% 96%",
-      "--popover-foreground": "210 10% 28%",
-      "--primary": "205 20% 52%",
-      "--primary-foreground": "210 25% 97%",
-      "--secondary": "210 12% 87%",
-      "--secondary-foreground": "210 10% 30%",
-      "--muted": "210 11% 88%",
-      "--muted-foreground": "210 6% 48%",
-      "--accent": "200 14% 85%",
-      "--accent-foreground": "210 10% 30%",
-      "--border": "210 9% 80%",
-      "--input": "210 9% 80%",
-      "--ring": "205 20% 52%",
-    },
-    darkVars: darkVariant({ fg: "215 12% 13%", primary: "205 22% 64%" }),
-    hoColors: ["205 24% 55%", "96 16% 52%", "350 14% 60%", "30 16% 58%"],
-  },
-  rose: {
-    label: "藕荷",
-    swatch: ["350 14% 94%", "350 18% 52%"],
-    vars: {
-      "--background": "350 14% 94%",
-      "--foreground": "340 8% 28%",
-      "--card": "350 16% 95.5%",
-      "--card-foreground": "340 8% 28%",
-      "--popover": "350 16% 96.5%",
-      "--popover-foreground": "340 8% 28%",
-      "--primary": "350 18% 52%",
-      "--primary-foreground": "350 22% 97%",
-      "--secondary": "350 12% 88%",
-      "--secondary-foreground": "340 9% 30%",
-      "--muted": "350 11% 89%",
-      "--muted-foreground": "350 5% 48%",
-      "--accent": "340 12% 86%",
-      "--accent-foreground": "340 9% 30%",
-      "--border": "350 8% 81%",
-      "--input": "350 8% 81%",
-      "--ring": "350 18% 52%",
-    },
-    darkVars: darkVariant({ fg: "345 8% 13%", primary: "350 18% 66%" }),
-    hoColors: ["350 18% 58%", "96 16% 50%", "205 16% 58%", "40 18% 58%"],
-  },
-  clay: {
-    label: "暖陶",
-    swatch: ["30 18% 93%", "22 28% 52%"],
-    vars: {
-      "--background": "30 18% 93%",
-      "--foreground": "25 10% 28%",
-      "--card": "30 20% 95%",
-      "--card-foreground": "25 10% 28%",
-      "--popover": "30 20% 96%",
-      "--popover-foreground": "25 10% 28%",
-      "--primary": "22 28% 52%",
-      "--primary-foreground": "30 25% 97%",
-      "--secondary": "30 14% 87%",
-      "--secondary-foreground": "25 10% 30%",
-      "--muted": "30 12% 88%",
-      "--muted-foreground": "30 6% 47%",
-      "--accent": "35 16% 85%",
-      "--accent-foreground": "25 10% 30%",
-      "--border": "30 10% 80%",
-      "--input": "30 10% 80%",
-      "--ring": "22 28% 52%",
-    },
-    darkVars: darkVariant({ fg: "28 10% 13%", primary: "22 28% 62%" }),
-    hoColors: ["22 30% 54%", "96 16% 48%", "205 16% 56%", "340 12% 56%"],
-  },
-  sunset: {
-    label: "落日",
-    swatch: ["36 32% 93%", "22 50% 56%"],
-    vars: {
-      "--background": "36 32% 93%",
-      "--foreground": "25 14% 26%",
-      "--card": "36 36% 95.5%",
-      "--card-foreground": "25 14% 26%",
-      "--popover": "36 34% 96.5%",
-      "--popover-foreground": "25 14% 26%",
-      "--primary": "22 50% 56%",
-      "--primary-foreground": "36 40% 96%",
-      "--secondary": "28 24% 88%",
-      "--secondary-foreground": "25 12% 30%",
-      "--muted": "32 22% 89%",
-      "--muted-foreground": "26 9% 46%",
-      "--accent": "350 22% 89%",
-      "--accent-foreground": "348 14% 32%",
-      "--border": "30 16% 80%",
-      "--input": "30 16% 80%",
-      "--ring": "22 50% 56%",
-    },
-    darkVars: darkVariant({ fg: "262 12% 14%", primary: "24 58% 64%" }),
-    hoColors: ["40 52% 55%", "22 55% 58%", "350 20% 60%", "245 14% 54%"],
-  },
-  neo: {
-    label: "前卫",
-    swatch: ["258 90% 60%", "72 100% 50%"],
-    vars: {
-      "--background": "240 12% 96%",
-      "--foreground": "240 12% 10%",
-      "--card": "0 0% 100%",
-      "--card-foreground": "240 12% 10%",
-      "--popover": "0 0% 100%",
-      "--popover-foreground": "240 12% 10%",
-      "--primary": "258 90% 60%",
-      "--primary-foreground": "0 0% 100%",
-      "--secondary": "240 8% 92%",
-      "--secondary-foreground": "240 10% 18%",
-      "--muted": "240 8% 93%",
-      "--muted-foreground": "240 6% 46%",
-      "--accent": "72 100% 50%",
-      "--accent-foreground": "240 20% 8%",
-      "--border": "240 8% 86%",
-      "--input": "240 8% 86%",
-      "--ring": "258 90% 60%",
-    },
-    darkVars: {
-      "--background": "240 12% 7%",
-      "--foreground": "240 10% 94%",
-      "--card": "240 10% 10%",
-      "--card-foreground": "240 10% 94%",
-      "--popover": "240 10% 10%",
-      "--popover-foreground": "240 10% 94%",
-      "--primary": "262 95% 68%",
-      "--primary-foreground": "0 0% 100%",
-      "--secondary": "240 7% 16%",
-      "--secondary-foreground": "240 10% 92%",
-      "--muted": "240 7% 15%",
-      "--muted-foreground": "240 6% 58%",
-      "--accent": "72 100% 55%",
-      "--accent-foreground": "240 20% 8%",
-      "--border": "240 7% 20%",
-      "--input": "240 7% 20%",
-      "--ring": "262 95% 68%",
-    },
+  volt: {
+    label: "电光",
+    swatch: ["240 12% 96%", "258 90% 60%"],
+    vars: palette({
+      bg: "240 12% 96%",
+      fg: "240 12% 10%",
+      card: "0 0% 100%",
+      primary: "258 90% 60%",
+      secondary: "240 8% 92%",
+      sf: "240 10% 18%",
+      muted: "240 8% 93%",
+      mf: "240 6% 46%",
+      accent: "72 100% 50%",
+      border: "240 8% 86%",
+    }),
+    darkVars: palette({
+      bg: "240 12% 7%",
+      fg: "240 10% 94%",
+      card: "240 10% 10%",
+      primary: "262 95% 68%",
+      secondary: "240 7% 16%",
+      sf: "240 10% 92%",
+      muted: "240 7% 15%",
+      mf: "240 6% 58%",
+      accent: "72 100% 55%",
+      border: "240 7% 20%",
+    }),
     hoColors: ["258 88% 62%", "190 95% 42%", "72 100% 40%", "330 90% 55%"],
+  },
+  neon: {
+    label: "霓虹",
+    swatch: ["240 10% 96%", "190 100% 42%"],
+    vars: palette({
+      bg: "240 10% 96%",
+      fg: "240 14% 10%",
+      card: "0 0% 100%",
+      primary: "190 100% 38%",
+      secondary: "195 20% 91%",
+      sf: "240 14% 16%",
+      muted: "195 14% 92%",
+      mf: "240 6% 44%",
+      accent: "320 100% 55%",
+      af: "0 0% 100%",
+      border: "240 8% 85%",
+    }),
+    darkVars: palette({
+      bg: "250 14% 7%",
+      fg: "240 12% 94%",
+      card: "250 12% 10%",
+      primary: "190 100% 50%",
+      secondary: "250 10% 16%",
+      sf: "240 12% 92%",
+      muted: "250 9% 15%",
+      mf: "250 6% 58%",
+      accent: "320 100% 60%",
+      af: "0 0% 100%",
+      border: "250 8% 20%",
+    }),
+    hoColors: ["190 100% 42%", "320 100% 55%", "72 100% 45%", "258 85% 62%"],
+  },
+  onyx: {
+    label: "曜石",
+    swatch: ["0 0% 97%", "240 10% 12%"],
+    vars: palette({
+      bg: "0 0% 97%",
+      fg: "240 10% 12%",
+      card: "0 0% 100%",
+      primary: "240 10% 12%",
+      pf: "0 0% 98%",
+      secondary: "0 0% 90%",
+      sf: "240 10% 15%",
+      muted: "0 0% 92%",
+      mf: "240 4% 42%",
+      accent: "25 100% 55%",
+      border: "0 0% 82%",
+    }),
+    darkVars: palette({
+      bg: "240 6% 8%",
+      fg: "0 0% 94%",
+      card: "240 6% 11%",
+      primary: "0 0% 94%",
+      pf: "240 10% 10%",
+      secondary: "240 5% 16%",
+      sf: "0 0% 92%",
+      muted: "240 5% 15%",
+      mf: "240 4% 56%",
+      accent: "25 100% 58%",
+      border: "240 5% 20%",
+    }),
+    hoColors: ["25 100% 55%", "258 85% 62%", "160 90% 38%", "320 90% 55%"],
+  },
+  aurora: {
+    label: "极光",
+    swatch: ["165 15% 96%", "160 90% 35%"],
+    vars: palette({
+      bg: "165 15% 96%",
+      fg: "170 14% 10%",
+      card: "0 0% 100%",
+      primary: "160 90% 32%",
+      secondary: "160 12% 90%",
+      sf: "170 14% 14%",
+      muted: "160 10% 91%",
+      mf: "170 6% 42%",
+      accent: "265 90% 62%",
+      af: "0 0% 100%",
+      border: "165 8% 84%",
+    }),
+    darkVars: palette({
+      bg: "165 14% 7%",
+      fg: "160 12% 92%",
+      card: "165 12% 10%",
+      primary: "160 90% 45%",
+      secondary: "165 9% 15%",
+      sf: "160 12% 90%",
+      muted: "165 8% 14%",
+      mf: "165 5% 56%",
+      accent: "265 90% 68%",
+      af: "0 0% 100%",
+      border: "165 7% 19%",
+    }),
+    hoColors: ["160 90% 38%", "265 90% 62%", "190 95% 42%", "45 100% 48%"],
+  },
+  heat: {
+    label: "热浪",
+    swatch: ["20 22% 96%", "350 90% 50%"],
+    vars: palette({
+      bg: "20 22% 96%",
+      fg: "350 20% 12%",
+      card: "0 0% 100%",
+      primary: "350 90% 48%",
+      secondary: "20 18% 91%",
+      sf: "350 18% 16%",
+      muted: "20 14% 92%",
+      mf: "350 8% 44%",
+      accent: "215 100% 55%",
+      af: "0 0% 100%",
+      border: "20 12% 85%",
+    }),
+    darkVars: palette({
+      bg: "350 14% 8%",
+      fg: "350 14% 92%",
+      card: "350 12% 11%",
+      primary: "350 90% 58%",
+      secondary: "350 10% 16%",
+      sf: "350 14% 90%",
+      muted: "350 8% 15%",
+      mf: "350 6% 58%",
+      accent: "215 100% 62%",
+      af: "0 0% 100%",
+      border: "350 8% 20%",
+    }),
+    hoColors: ["350 90% 55%", "215 100% 55%", "38 100% 48%", "160 85% 38%"],
   },
 };
 
-const THEME_KEY = "coc-web-theme-v2";
+const THEME_KEY = "coc-web-theme-v3";
 const MODE_KEY = "coc-web-mode";
 
 export function getTheme(): ThemeName {
@@ -264,7 +237,7 @@ export function getTheme(): ThemeName {
   } catch {
     /* ignore */
   }
-  return "neo";
+  return "volt";
 }
 
 export function getMode(): Mode {
@@ -300,7 +273,7 @@ export function setMode(mode: Mode) {
 }
 
 // default HO column colors (before any theme is applied)
-const DEFAULT_HO = ["96 16% 58%", "205 18% 60%", "350 16% 62%", "36 22% 60%"];
+const DEFAULT_HO = ["258 88% 62%", "190 95% 42%", "72 100% 40%", "330 90% 55%"];
 DEFAULT_HO.forEach((c, i) => document.documentElement.style.setProperty(`--ho-${i + 1}`, c));
 
 // apply saved theme as early as possible

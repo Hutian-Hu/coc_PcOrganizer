@@ -84,53 +84,6 @@
 }
 
 @layer components {
-  /* 状态 color tag：实心色块标签 */
-  .st-planned,
-  .st-ongoing,
-  .st-paused,
-  .st-disbanded,
-  .st-finished {
-    display: inline-flex;
-    align-items: center;
-    font-weight: 500;
-  }
-  .st-planned {
-    background-color: hsl(var(--morandi-planned));
-    color: #ffffff;
-  }
-  .st-ongoing {
-    background-color: hsl(var(--morandi-ongoing));
-    color: #ffffff;
-  }
-  .st-paused {
-    background-color: hsl(var(--morandi-paused));
-    color: hsl(32 55% 14%);
-  }
-  .st-disbanded {
-    background-color: hsl(var(--morandi-disbanded));
-    color: #ffffff;
-  }
-  .st-finished {
-    background-color: hsl(var(--morandi-finished));
-    color: #ffffff;
-  }
-  .dot-planned { background-color: hsl(var(--morandi-planned)); }
-  .dot-ongoing { background-color: hsl(var(--morandi-ongoing)); }
-  .dot-paused { background-color: hsl(var(--morandi-paused)); }
-  .dot-disbanded { background-color: hsl(var(--morandi-disbanded)); }
-  .dot-finished { background-color: hsl(var(--morandi-finished)); }
-
-  /* HO 栏目 chip */
-  .ho-chip {
-    @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors;
-    background-color: hsl(36 16% 88% / 0.6);
-    border-color: hsl(var(--border));
-    color: hsl(45 9% 34%);
-  }
-  .ho-chip:hover {
-    border-color: hsl(40 8% 62%);
-  }
-
   /* 角色卡预览表格（样式来自 xlsx 本身，格线作底） */
   .card-grid {
     border-collapse: collapse;
@@ -155,4 +108,87 @@
 *::before,
 *::after {
   border-radius: 4px !important;
+}
+
+/* 分步使用说明 */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.steps li {
+  display: flex;
+  gap: 12px;
+  position: relative;
+  padding-bottom: 14px;
+}
+.steps li:last-child {
+  padding-bottom: 0;
+}
+.steps li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 28px;
+  bottom: 2px;
+  width: 2px;
+  background: hsl(var(--border));
+}
+.steps .n {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+.steps .t {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+}
+.steps .d {
+  display: block;
+  font-size: 13px;
+  line-height: 20px;
+  color: hsl(var(--muted-foreground));
+  margin-top: 2px;
+}
+
+/* 状态 color tag：实心色块标签（放在 layer 外，避免被 Tailwind 按内容裁剪——
+   这些类名由 st-${status} 动态拼接，扫描器认不出来） */
+.st-planned,
+.st-ongoing,
+.st-paused,
+.st-disbanded,
+.st-finished {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 500;
+}
+.st-planned {
+  background-color: hsl(var(--morandi-planned));
+  color: #ffffff;
+}
+.st-ongoing {
+  background-color: hsl(var(--morandi-ongoing));
+  color: #ffffff;
+}
+.st-paused {
+  background-color: hsl(var(--morandi-paused));
+  color: hsl(32 55% 14%);
+}
+.st-disbanded {
+  background-color: hsl(var(--morandi-disbanded));
+  color: #ffffff;
+}
+.st-finished {
+  background-color: hsl(var(--morandi-finished));
+  color: #ffffff;
 }
